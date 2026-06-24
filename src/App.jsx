@@ -1669,16 +1669,19 @@ function CompaniesView({ companies, saveCompanies, bills, setBills, properties, 
         if (!proceed) { setImporting(false); e.target.value = ""; return; }
 
         // Write each to storage and update state
-        const writes = [];
-        if (data.companies) { setCompanies(data.companies); writes.push(save("bk:companies", data.companies)); }
-        if (data.bills) { setBills(data.bills); writes.push(save("bk:bills", data.bills)); }
-        if (data.properties) { setProperties(data.properties); writes.push(save("bk:properties", data.properties)); }
-        if (data.tenants) { setTenants(data.tenants); writes.push(save("bk:tenants", data.tenants)); }
-        if (data.payments) { setPayments(data.payments); writes.push(save("bk:payments", data.payments)); }
-        if (data.flips) { setFlips(data.flips); writes.push(save("bk:flips", data.flips)); }
-        if (data.notes) { setNotes(data.notes); writes.push(save("bk:notes", data.notes)); }
-        if (data.payrolls) { setPayrolls(data.payrolls); writes.push(save("bk:payrolls", data.payrolls)); }
-        await Promise.all(writes);
+        // Save in dependency order so foreign keys are satisfied
+        // 1. Companies (no deps)
+        if (data.companies) { setCompanies(data.companies); await save("bk:companies", data.companies); }
+        // 2. Properties, flips (depend on companies)
+        if (data.properties) { setProperties(data.properties); await save("bk:properties", data.properties); }
+        if (data.flips) { setFlips(data.flips); await save("bk:flips", data.flips); }
+        // 3. Tenants (depend on properties), bills (depend on co/prop/flip), payrolls (depend on companies)
+        if (data.tenants) { setTenants(data.tenants); await save("bk:tenants", data.tenants); }
+        if (data.bills) { setBills(data.bills); await save("bk:bills", data.bills); }
+        if (data.payrolls) { setPayrolls(data.payrolls); await save("bk:payrolls", data.payrolls); }
+        // 4. Payments (depend on tenants), notes (depend on companies)
+        if (data.payments) { setPayments(data.payments); await save("bk:payments", data.payments); }
+        if (data.notes) { setNotes(data.notes); await save("bk:notes", data.notes); }
         alert("Data restored successfully.");
       } catch (err) {
         alert("Could not read backup file: " + err.message);
