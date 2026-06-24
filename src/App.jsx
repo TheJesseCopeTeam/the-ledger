@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   LayoutDashboard, Receipt, Building2, Hammer, Settings as SettingsIcon,
   Plus, Trash2, Pencil, Check, X, Calendar, AlertCircle, FileText,
@@ -240,7 +240,7 @@ export default function App({ onSignOut }) {
       ]);
 
       // Companies: apply name migration if needed
-      if (c) {
+      if (c && c.length > 0) {
         const renames = {
           "Flip Corporation": "JMC Investments",
           "Rental LLC": "Penciled Properties",
@@ -265,7 +265,7 @@ export default function App({ onSignOut }) {
       } else { setCompanies(SEED_COMPANIES); save("bk:companies", SEED_COMPANIES); }
 
       // Bills: remove redundant biweekly payroll bill (superseded by Payroll & Quarterlies calendar)
-      if (b) {
+      if (b && b.length > 0) {
         const cleaned = b.filter(bill => !(
           bill.companyId === "flip" &&
           bill.name === "Payroll (employees + owners)" &&
@@ -276,7 +276,7 @@ export default function App({ onSignOut }) {
       } else { setBills(SEED_BILLS); save("bk:bills", SEED_BILLS); }
 
       // Properties: add category if missing
-      if (p) {
+      if (p && p.length > 0) {
         let changed = false;
         const migrated = p.map(prop => {
           if (!prop.category) { changed = true; return { ...prop, category: "Rental" }; }
@@ -1612,6 +1612,7 @@ function CompaniesView({ companies, saveCompanies, bills, setBills, properties, 
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
 
   const handleSave = (c) => {
     if (editing) saveCompanies(companies.map(x => x.id === editing.id ? { ...editing, ...c } : x));
@@ -1702,13 +1703,11 @@ function CompaniesView({ companies, saveCompanies, bills, setBills, properties, 
           </div>
           <div className="flex gap-2 flex-wrap">
             <Btn onClick={exportData}>Export Backup</Btn>
-            <label className="inline-flex">
-              <input type="file" accept="application/json,.json" onChange={handleFileImport} className="hidden" disabled={importing} />
-              <span className={`font-sans font-medium px-3.5 py-2 text-sm rounded border inline-flex items-center gap-1.5 cursor-pointer ${importing ? "opacity-50 cursor-not-allowed" : "hover:bg-black/5"}`}
-                style={{ borderColor: C.inkLine, color: C.ink }}>
-                {importing ? "Importing…" : "Restore from File"}
-              </span>
-            </label>
+            <Btn variant="secondary" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+              {importing ? "Importing…" : "Restore from File"}
+            </Btn>
+            <input ref={fileInputRef} type="file" accept=".json,application/json"
+              onChange={handleFileImport} style={{ display: "none" }} />
           </div>
         </div>
       </Card>
