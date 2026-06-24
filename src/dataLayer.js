@@ -6,7 +6,10 @@ const toCamel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
 const objToDb = (obj) => {
   const out = {};
-  for (const [k, v] of Object.entries(obj)) out[toSnake(k)] = v;
+  for (const [k, v] of Object.entries(obj)) {
+    // Postgres rejects "" for numeric/date columns - convert to null
+    out[toSnake(k)] = v === "" ? null : v;
+  }
   return out;
 };
 const objFromDb = (row) => {
