@@ -4,9 +4,13 @@ import { supabase } from "./supabaseClient";
 const toSnake = (s) => s.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
 const toCamel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
+// Fields that get computed for display but shouldn't be saved to the database
+const NEVER_SAVE = new Set(["days"]);
+
 const objToDb = (obj) => {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
+    if (NEVER_SAVE.has(k)) continue;
     // Postgres rejects "" for numeric/date columns - convert to null
     out[toSnake(k)] = v === "" ? null : v;
   }
