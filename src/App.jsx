@@ -1867,6 +1867,22 @@ const computePayday = (targetIso) => {
   return iso();
 };
 
+// IRS semi-weekly deposit rule:
+//   Payday Mon or Tue  -> EFTPS due the following Friday (same week)
+//   Payday Wed/Thu/Fri -> EFTPS due the following Wednesday (next week)
+const computeEftps = (paydayIso) => {
+  if (!paydayIso) return null;
+  const d = new Date(paydayIso + "T00:00:00");
+  const dow = d.getDay(); // 0=Sun ... 6=Sat
+  let add = 0;
+  if (dow === 1 || dow === 2) add = 5 - dow;           // Mon/Tue -> Fri
+  else if (dow >= 3 && dow <= 5) add = 3 + 7 - dow;    // Wed/Thu/Fri -> next Wed
+  else if (dow === 6) add = 4;                          // Sat -> next Wed
+  else if (dow === 0) add = 3;                          // Sun -> next Wed
+  d.setDate(d.getDate() + add);
+  return d.toISOString().split("T")[0];
+};
+
 // Get payroll events for a given month. Pay days = 1st, 10th, 25th. Submission = 48hr before payday.
 const getPayrollEventsForMonth = (yearMonth) => {
   const [y, m] = yearMonth.split("-").map(Number);
@@ -2981,6 +2997,15 @@ function JMCPayrollView({ companyId, bills, saveBills, companies, payrolls, save
           payrollId: p.id
         });
       }
+      if (p.eftpsDate && p.eftpsDate >= monthStart && p.eftpsDate < monthEnd) {
+        events.push({
+          date: p.eftpsDate,
+          title: `EFTPS: ${p.label || "Payroll"}`,
+          color: p.status === "done" ? C.inkSoft : "#7c5cad",
+          type: "payroll-eftps",
+          payrollId: p.id
+        });
+      }
       return events;
     });
 
@@ -3060,11 +3085,13 @@ function JMCPayrollView({ companyId, bills, saveBills, companies, payrolls, save
         const target = `${ym}-${String(safeDay).padStart(2, "0")}`;
         const payday = computePayday(target);
         const submitDate = addDays(payday, -2);
+        const eftpsDate = computeEftps(payday);
         entries.push({
           id: uid(),
           companyId,
           payday,
           submitDate,
+          eftpsDate,
           label: `Payday (${ordinal(day)})`,
           status: "open",
           notes: ""
@@ -3124,6 +3151,7 @@ function JMCPayrollView({ companyId, bills, saveBills, companies, payrolls, save
           <span className="font-sans text-xs" style={{ color: C.inkSoft }}>Legend:</span>
           <span className="font-sans text-xs flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.amber }} /> Submit Payroll</span>
           <span className="font-sans text-xs flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.green }} /> Payday</span>
+          <span className="font-sans text-xs flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: "#7c5cad" }} /> EFTPS Due</span>
           <span className="font-sans text-xs flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.red }} /> Quarterly Tax</span>
           <span className="font-sans text-xs flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.amber }} /> Annual / Year-End</span>
         </div>
@@ -3141,7 +3169,7 @@ function JMCPayrollView({ companyId, bills, saveBills, companies, payrolls, save
                 <div className="flex-1 min-w-0">
                   <p className="font-sans text-sm font-medium" style={{ color: C.ink, opacity: p.status === "done" ? 0.5 : 1 }}>{p.label}</p>
                   <p className="font-sans text-xs" style={{ color: C.inkSoft }}>
-                    Pay {fmtDate(p.payday)}{days !== null && ` (in ${days}d)`} • Submit {fmtDate(p.submitDate)}
+                    Pay {fmtDate(p.payday)}{days !== null && ` (in ${days}d)`} • Submit {fmtDate(p.submitDate)}{p.eftpsDate && ` • EFTPS ${fmtDate(p.eftpsDate)}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -3250,7 +3278,7 @@ function JMCPayrollView({ companyId, bills, saveBills, companies, payrolls, save
                   <div key={i} className="p-3 rounded border" style={{ borderColor: C.inkLine, background: C.paperSoft }}>
                     <p className="font-sans font-medium" style={{ color: C.ink }}>{e.title}</p>
                     <p className="font-sans text-xs mt-0.5" style={{ color: C.inkSoft }}>
-                      Pay: {fmtDate(entry.payday)} • Submit: {fmtDate(entry.submitDate)} • {entry.status === "done" ? "Done" : "Open"}
+                      Pay: {fmtDate(entry.payday)} • Submit: {fmtDate(entry.submitDate)}{entry.eftpsDate && ` • EFTPS: ${fmtDate(entry.eftpsDate)}`} • {entry.status === "done" ? "Done" : "Open"}
                     </p>
                     <div className="flex gap-2 mt-2">
                       {entry.status !== "done" && (
@@ -3288,17 +3316,21 @@ function PayrollEntryForm({ entry, onSave, onCancel, onDelete }) {
   const [form, setForm] = useState({
     payday: initialPayday,
     submitDate: entry?.submitDate || addDays(initialPayday, -2),
+    eftpsDate: entry?.eftpsDate || computeEftps(initialPayday),
     label: entry?.label || "Payday",
     notes: entry?.notes || "",
     status: entry?.status || "open"
   });
   const update = (k, v) => {
     if (k === "payday" && (!entry || !entry.id)) {
-      // For new entries, auto-update submit date when payday changes
-      setForm({ ...form, payday: v, submitDate: addDays(v, -2) });
+      // For new entries, auto-update submit + EFTPS when payday changes
+      setForm({ ...form, payday: v, submitDate: addDays(v, -2), eftpsDate: computeEftps(v) });
     } else {
       setForm({ ...form, [k]: v });
     }
+  };
+  const recomputeEftps = () => {
+    setForm({ ...form, eftpsDate: computeEftps(form.payday) });
   };
   return (
     <div className="space-y-4">
@@ -3311,6 +3343,20 @@ function PayrollEntryForm({ entry, onSave, onCancel, onDelete }) {
           <Label>Submit by</Label>
           <Input type="date" value={form.submitDate} onChange={e => update("submitDate", e.target.value)} className="block w-full mt-1" />
         </div>
+      </div>
+      <div>
+        <div className="flex items-center justify-between">
+          <Label>EFTPS deposit due</Label>
+          <button type="button" onClick={recomputeEftps}
+            className="font-sans text-xs underline"
+            style={{ color: C.inkSoft }}>
+            Auto-fill from pay date
+          </button>
+        </div>
+        <Input type="date" value={form.eftpsDate || ""} onChange={e => update("eftpsDate", e.target.value)} className="block w-full mt-1" />
+        <p className="font-sans text-xs mt-1" style={{ color: C.inkSoft }}>
+          Rule: payday Mon/Tue → Friday of same week; payday Wed/Thu/Fri → next Wednesday.
+        </p>
       </div>
       <div>
         <Label>Label</Label>
