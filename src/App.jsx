@@ -34,7 +34,9 @@ const nextDue = (iso, recurrence) => {
   if (recurrence === "biweekly") return addDays(iso, 14);
   if (recurrence === "semimonthly") return addDays(iso, 15);
   if (recurrence === "monthly") return addMonths(iso, 1);
+  if (recurrence === "bimonthly") return addMonths(iso, 2);
   if (recurrence === "quarterly") return addMonths(iso, 3);
+  if (recurrence === "semiannual") return addMonths(iso, 6);
   if (recurrence === "annual") return addYears(iso, 1);
   return iso;
 };
@@ -98,7 +100,9 @@ const RECURRENCES = [
   { v: "biweekly", label: "Every 2 weeks" },
   { v: "semimonthly", label: "Twice monthly (~15 days)" },
   { v: "monthly", label: "Monthly" },
+  { v: "bimonthly", label: "Every 2 months" },
   { v: "quarterly", label: "Quarterly" },
+  { v: "semiannual", label: "Every 6 months" },
   { v: "annual", label: "Annual" }
 ];
 
