@@ -2086,7 +2086,9 @@ function JMCView({ company, allCompanies, bills, saveBills, properties, saveProp
       )}
       {subTab === "projects" && (
         <JMCProjectsView companyId={company.id} flips={flips} saveFlips={saveFlips}
-          bills={bills} saveBills={saveBills} companies={allCompanies} />
+          bills={bills} saveBills={saveBills} companies={allCompanies}
+          properties={properties} saveProperties={saveProperties}
+          tenants={tenants} saveTenants={saveTenants} /> />
       )}
       {subTab === "rentals" && (
         <JMCRentalsView companyId={company.id} properties={properties} saveProperties={saveProperties}
@@ -2365,7 +2367,7 @@ function JMCRemindersView({ companyId, bills, saveBills, flips, properties, comp
 // ============================================================
 const DEFAULT_UTILITIES = ["Electric", "Water", "Sewer", "Gas", "Internet", "Trash"];
 
-function JMCProjectsView({ companyId, flips, saveFlips, bills, saveBills, companies }) {
+function JMCProjectsView({ companyId, flips, saveFlips, bills, saveBills, companies, properties, saveProperties, tenants, saveTenants }) {
   const [editingProject, setEditingProject] = useState(null);
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [openProject, setOpenProject] = useState(null);
@@ -2394,6 +2396,33 @@ function JMCProjectsView({ companyId, flips, saveFlips, bills, saveBills, compan
 
   const openProj = openProject ? flips.find(f => f.id === openProject) : null;
 
+  const handleConvertToRental = (targetCompanyId) => {
+    if (!openProj) return;
+    const newPropertyId = uid();
+    // Create property from flip data
+    const newProperty = {
+      id: newPropertyId,
+      companyId: targetCompanyId,
+      address: openProj.address || "",
+      nickname: openProj.nickname || "",
+      type: "Single Family",
+      units: 1,
+      category: "Rental",
+      insurer: openProj.insurer || "",
+      mortgageLender: openProj.mortgageLender || "",
+      utilities: openProj.utilities || DEFAULT_UTILITIES.map(name => ({ id: uid(), name, signedUp: false, company: "" })),
+      notes: openProj.notes || ""
+    };
+    saveProperties([...properties, newProperty]);
+    // Migrate bills: flipId -> propertyId
+    saveBills(bills.map(b => b.flipId === openProj.id
+      ? { ...b, flipId: null, propertyId: newPropertyId, companyId: targetCompanyId }
+      : b));
+    // Delete flip
+    saveFlips(flips.filter(f => f.id !== openProj.id));
+    setOpenProject(null);
+  };
+
   return (
     <div>
       {openProj ? (
@@ -2401,7 +2430,8 @@ function JMCProjectsView({ companyId, flips, saveFlips, bills, saveBills, compan
           bills={bills} saveBills={saveBills} companies={companies}
           onBack={() => setOpenProject(null)}
           onEdit={() => { setEditingProject(openProj); setShowProjectForm(true); }}
-          onDelete={() => handleDeleteProject(openProj.id)} />
+          onDelete={() => handleDeleteProject(openProj.id)}
+          onConvertToRental={handleConvertToRental} />
       ) : (
         <>
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -2558,7 +2588,8 @@ function ProjectForm({ project, onSave, onCancel }) {
 // ============================================================
 // PROJECT DETAIL VIEW (inside Projects tab)
 // ============================================================
-function ProjectDetailView({ project, flips, saveFlips, bills, saveBills, companies, onBack, onEdit, onDelete }) {
+function ProjectDetailView({ project, flips, saveFlips, bills, saveBills, companies, onBack, onEdit, onDelete, onConvertToRental }) {
+  const [showConvertModal, setShowConvertModal] = useState(false);
   const [editingBill, setEditingBill] = useState(null);
   const [showBillForm, setShowBillForm] = useState(false);
   const [addingUtility, setAddingUtility] = useState(false);
@@ -2626,10 +2657,15 @@ function ProjectDetailView({ project, flips, saveFlips, bills, saveBills, compan
           style={{ color: C.inkSoft }}>
           ← Back to all projects
         </button>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Btn variant="secondary" size="sm" onClick={onEdit}>
             <Pencil size={12} /> Edit Project Info
           </Btn>
+          {onConvertToRental && (
+            <Btn variant="secondary" size="sm" onClick={() => setShowConvertModal(true)}>
+              Convert to Rental
+            </Btn>
+          )}
           {onDelete && (
             <Btn variant="danger" size="sm" onClick={onDelete}>
               <Trash2 size={12} /> Delete
@@ -2780,19 +2816,67 @@ function ProjectDetailView({ project, flips, saveFlips, bills, saveBills, compan
           </div>
         </div>
       </Modal>
+
+      <ConvertFlipModal
+        open={showConvertModal}
+        onClose={() => setShowConvertModal(false)}
+        project={project}
+        companies={companies}
+        bills={bills.filter(b => b.flipId === project.id)}
+        onConfirm={(targetCompanyId) => { setShowConvertModal(false); onConvertToRental && onConvertToRental(targetCompanyId); }}
+      />
     </div>
   );
 }
 
 // ============================================================
-// JMC: RENTALS VIEW (simpler than Penciled's - just address, tenant, rent, notes)
+// CONVERT FLIP → RENTAL MODAL
 // ============================================================
+function ConvertFlipModal({ open, onClose, project, companies, bills, onConfirm }) {
+  const [targetCompanyId, setTargetCompanyId] = useState("rentals");
+  if (!project) return null;
+  return (
+    <Modal open={open} onClose={onClose} title="Convert to Rental" wide>
+      <div className="space-y-4">
+        <p className="font-sans text-sm" style={{ color: C.ink }}>
+          Convert <span className="font-medium">{project.nickname || project.address}</span> from a flip project into a rental property.
+        </p>
+
+        <div className="p-3 rounded" style={{ background: C.paperSoft, border: `1px solid ${C.inkLine}` }}>
+          <p className="font-sans text-xs uppercase tracking-wider mb-2" style={{ color: C.inkSoft }}>What happens:</p>
+          <ul className="font-sans text-sm space-y-1" style={{ color: C.ink }}>
+            <li>• A new rental property will be created under the company you pick below.</li>
+            <li>• The address, nickname, notes, utilities, insurer, and mortgage lender will carry over.</li>
+            <li>• {bills.length} bill{bills.length === 1 ? "" : "s"} linked to this project will be re-linked to the new rental.</li>
+            <li>• Flip-specific info (purchase price, target sale, budget, status) will NOT carry over.</li>
+            <li>• The flip project record will be deleted.</li>
+          </ul>
+        </div>
+
+        <div>
+          <Label>Move to which company?</Label>
+          <Select value={targetCompanyId} onChange={e => setTargetCompanyId(e.target.value)} className="block w-full mt-1">
+            {companies.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={() => onConfirm(targetCompanyId)}>Convert</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 function JMCRentalsView({ companyId, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies }) {
   const [editingProp, setEditingProp] = useState(null);
   const [showPropForm, setShowPropForm] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
   const [showTenantForm, setShowTenantForm] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [transferProp, setTransferProp] = useState(null);
 
   const myRentals = properties.filter(p => p.companyId === companyId);
 
@@ -2807,6 +2891,35 @@ function JMCRentalsView({ companyId, properties, saveProperties, tenants, saveTe
       saveTenants(tenants.filter(t => t.propertyId !== id));
       saveBills(bills.map(b => b.propertyId === id ? { ...b, propertyId: null } : b));
     }
+  };
+  const handleTransferProp = (property, targetCompanyId) => {
+    // If inline tenant info exists, create a tenants row so it shows up in Penciled's view
+    const hasInline = property.tenantName && property.tenantName.trim();
+    let nextTenants = tenants;
+    if (hasInline) {
+      const alreadyExists = tenants.some(t => t.propertyId === property.id && t.name === property.tenantName);
+      if (!alreadyExists) {
+        nextTenants = [...tenants, {
+          id: uid(),
+          propertyId: property.id,
+          name: property.tenantName,
+          rent: property.rent || null,
+          leaseStart: property.leaseStart || null,
+          leaseEnd: property.leaseEnd || null,
+          active: true,
+          notes: ""
+        }];
+        saveTenants(nextTenants);
+      }
+    }
+    // Change companyId and update linked bills to same company
+    saveProperties(properties.map(p => p.id === property.id
+      ? { ...p, companyId: targetCompanyId }
+      : p));
+    saveBills(bills.map(b => b.propertyId === property.id
+      ? { ...b, companyId: targetCompanyId }
+      : b));
+    setTransferProp(null);
   };
   const handleSaveTenant = (t) => {
     if (editingTenant && editingTenant.id) saveTenants(tenants.map(x => x.id === editingTenant.id ? { ...editingTenant, ...t } : x));
@@ -2866,11 +2979,14 @@ function JMCRentalsView({ companyId, properties, saveProperties, tenants, saveTe
                       <p className="font-sans text-xs mt-2 italic pt-2 border-t" style={{ color: C.inkSoft, borderColor: C.inkLine + "55" }}>{p.notes}</p>
                     )}
                   </div>
-                  <div className="flex gap-1 shrink-0">
-                    <button onClick={() => { setEditingProp(p); setShowPropForm(true); }} className="p-1.5 hover:bg-black/10 rounded">
+                  <div className="flex gap-1 shrink-0 items-start">
+                    <button onClick={() => { setEditingProp(p); setShowPropForm(true); }} className="p-1.5 hover:bg-black/10 rounded" title="Edit">
                       <Pencil size={14} style={{ color: C.inkSoft }} />
                     </button>
-                    <button onClick={() => handleDeleteProp(p.id)} className="p-1.5 hover:bg-red-100 rounded">
+                    <button onClick={() => setTransferProp(p)} className="px-2 py-1 hover:bg-black/10 rounded font-sans text-xs" title="Move to another company" style={{ color: C.inkSoft }}>
+                      Move
+                    </button>
+                    <button onClick={() => handleDeleteProp(p.id)} className="p-1.5 hover:bg-red-100 rounded" title="Delete">
                       <Trash2 size={14} style={{ color: C.red }} />
                     </button>
                   </div>
@@ -2892,7 +3008,61 @@ function JMCRentalsView({ companyId, properties, saveProperties, tenants, saveTe
         <TenantForm tenant={editingTenant} properties={myRentals} onSave={handleSaveTenant}
           onCancel={() => { setShowTenantForm(false); setEditingTenant(null); }} />
       </Modal>
+
+      <TransferPropertyModal
+        open={!!transferProp}
+        onClose={() => setTransferProp(null)}
+        property={transferProp}
+        currentCompanyId={companyId}
+        companies={companies}
+        onConfirm={handleTransferProp}
+      />
     </div>
+  );
+}
+
+// ============================================================
+// TRANSFER PROPERTY MODAL (move rental from one company to another)
+// ============================================================
+function TransferPropertyModal({ open, onClose, property, currentCompanyId, companies, onConfirm }) {
+  const otherCompanies = companies.filter(c => c.id !== currentCompanyId);
+  const [targetId, setTargetId] = useState(otherCompanies[0]?.id || "");
+  useEffect(() => {
+    if (open && otherCompanies.length > 0 && !otherCompanies.find(c => c.id === targetId)) {
+      setTargetId(otherCompanies[0].id);
+    }
+  }, [open]); // eslint-disable-line
+  if (!property) return null;
+  const hasInline = property.tenantName && property.tenantName.trim();
+  return (
+    <Modal open={open} onClose={onClose} title="Move Rental to Another Company">
+      <div className="space-y-4">
+        <p className="font-sans text-sm" style={{ color: C.ink }}>
+          Move <span className="font-medium">{property.nickname || property.address}</span> to a different company.
+        </p>
+        <div className="p-3 rounded" style={{ background: C.paperSoft, border: `1px solid ${C.inkLine}` }}>
+          <p className="font-sans text-xs uppercase tracking-wider mb-2" style={{ color: C.inkSoft }}>What happens:</p>
+          <ul className="font-sans text-sm space-y-1" style={{ color: C.ink }}>
+            <li>• The property will be reassigned to the company you pick.</li>
+            <li>• Bills linked to this property will follow it.</li>
+            {hasInline && <li>• The inline tenant info ({property.tenantName}) will be added to the tenants list so it shows up in the new company.</li>}
+            <li>• Nothing is deleted.</li>
+          </ul>
+        </div>
+        <div>
+          <Label>Move to which company?</Label>
+          <Select value={targetId} onChange={e => setTargetId(e.target.value)} className="block w-full mt-1">
+            {otherCompanies.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={() => onConfirm(property, targetId)} disabled={!targetId}>Move</Btn>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -3608,6 +3778,7 @@ function PenciledPropertiesView({ companyId, properties, saveProperties, tenants
   const [editingProp, setEditingProp] = useState(null);
   const [showPropForm, setShowPropForm] = useState(false);
   const [openProp, setOpenProp] = useState(null);
+  const [transferProp, setTransferProp] = useState(null);
 
   const myProperties = useMemo(() => properties.filter(p => p.companyId === companyId), [properties, companyId]);
 
@@ -3633,6 +3804,17 @@ function PenciledPropertiesView({ companyId, properties, saveProperties, tenants
     }
   };
 
+  const handleTransferProp = (property, targetCompanyId) => {
+    saveProperties(properties.map(p => p.id === property.id
+      ? { ...p, companyId: targetCompanyId }
+      : p));
+    saveBills(bills.map(b => b.propertyId === property.id
+      ? { ...b, companyId: targetCompanyId }
+      : b));
+    setTransferProp(null);
+    if (openProp === property.id) setOpenProp(null);
+  };
+
   const openProperty = openProp ? properties.find(p => p.id === openProp) : null;
 
   return (
@@ -3642,7 +3824,8 @@ function PenciledPropertiesView({ companyId, properties, saveProperties, tenants
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills} companies={companies}
           onBack={() => setOpenProp(null)}
           onEdit={() => { setEditingProp(openProperty); setShowPropForm(true); }}
-          onDelete={() => handleDeleteProp(openProperty.id)} />
+          onDelete={() => handleDeleteProp(openProperty.id)}
+          onTransfer={() => setTransferProp(openProperty)} />
       ) : (
         <>
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -3680,9 +3863,12 @@ function PenciledPropertiesView({ companyId, properties, saveProperties, tenants
                           {propBills.length > 0 && <Pill color={overdueCount > 0 ? C.red : C.ink}>{propBills.length} open bills</Pill>}
                         </div>
                       </div>
-                      <div className="flex gap-1 shrink-0">
+                      <div className="flex gap-1 shrink-0 items-start">
                         <button onClick={() => { setEditingProp(p); setShowPropForm(true); }} className="p-1.5 hover:bg-black/10 rounded" title="Edit">
                           <Pencil size={14} style={{ color: C.inkSoft }} />
+                        </button>
+                        <button onClick={() => setTransferProp(p)} className="px-2 py-1 hover:bg-black/10 rounded font-sans text-xs" title="Move to another company" style={{ color: C.inkSoft }}>
+                          Move
                         </button>
                         <button onClick={() => handleDeleteProp(p.id)} className="p-1.5 hover:bg-red-100 rounded" title="Delete">
                           <Trash2 size={14} style={{ color: C.red }} />
@@ -3702,6 +3888,15 @@ function PenciledPropertiesView({ companyId, properties, saveProperties, tenants
         <PenciledPropertyForm property={editingProp} onSave={handleSaveProp}
           onCancel={() => { setShowPropForm(false); setEditingProp(null); }} />
       </Modal>
+
+      <TransferPropertyModal
+        open={!!transferProp}
+        onClose={() => setTransferProp(null)}
+        property={transferProp}
+        currentCompanyId={companyId}
+        companies={companies}
+        onConfirm={handleTransferProp}
+      />
     </div>
   );
 }
@@ -3770,7 +3965,7 @@ function PenciledPropertyForm({ property, onSave, onCancel }) {
 // ============================================================
 // PENCILED: PROPERTY DETAIL VIEW
 // ============================================================
-function PenciledPropertyDetailView({ property, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, onBack, onEdit, onDelete }) {
+function PenciledPropertyDetailView({ property, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, onBack, onEdit, onDelete, onTransfer }) {
   const [editingTenant, setEditingTenant] = useState(null);
   const [showTenantForm, setShowTenantForm] = useState(false);
   const [editingBill, setEditingBill] = useState(null);
@@ -3841,10 +4036,15 @@ function PenciledPropertyDetailView({ property, properties, saveProperties, tena
         <button onClick={onBack} className="font-sans text-sm flex items-center gap-1 hover:opacity-70" style={{ color: C.inkSoft }}>
           ← Back to all properties
         </button>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Btn variant="secondary" size="sm" onClick={onEdit}>
             <Pencil size={12} /> Edit Property Info
           </Btn>
+          {onTransfer && (
+            <Btn variant="secondary" size="sm" onClick={onTransfer}>
+              Move to…
+            </Btn>
+          )}
           {onDelete && (
             <Btn variant="danger" size="sm" onClick={onDelete}>
               <Trash2 size={12} /> Delete
