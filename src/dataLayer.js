@@ -30,7 +30,8 @@ const TABLES = {
   "bk:tenants": "tenants",
   "bk:payments": "payments",
   "bk:flips": "flips",
-  "bk:payrolls": "payrolls"
+  "bk:payrolls": "payrolls",
+  "bk:quickLaunch": "quick_launch"
 };
 
 // Load - returns array (or object for notes)
