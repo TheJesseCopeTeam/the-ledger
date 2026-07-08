@@ -14,7 +14,7 @@ import { load, save } from "./dataLayer";
 // DATE HELPERS
 // ============================================================
 const todayISO = () => new Date().toISOString().split("T")[0];
-const fmtDate = (iso) => {a
+const fmtDate = (iso) => {
   if (!iso) return "—";
   const [y, m, d] = iso.split("-");
   return `${m}/${d}/${y}`;
@@ -281,44 +281,18 @@ export default function App({ onSignOut }) {
         if (cleaned.length !== b.length) save("bk:bills", cleaned);
       } else { setBills(SEED_BILLS); save("bk:bills", SEED_BILLS); }
 
-      // Properties: add category if missing; migrate any inline tenant data into the tenants table
-      let workingTenants = t || [];
-      let tenantsChanged = false;
+      // Properties: add category if missing
       if (p && p.length > 0) {
-        let propsChanged = false;
+        let changed = false;
         const migrated = p.map(prop => {
-          let out = prop;
-          if (!out.category) { propsChanged = true; out = { ...out, category: "Rental" }; }
-          // Migrate inline tenant fields to tenants table
-          if (out.tenantName && out.tenantName.trim()) {
-            const alreadyExists = workingTenants.some(tt =>
-              tt.propertyId === out.id && tt.name === out.tenantName
-            );
-            if (!alreadyExists) {
-              workingTenants = [...workingTenants, {
-                id: uid(),
-                propertyId: out.id,
-                name: out.tenantName,
-                rent: out.rent || null,
-                leaseStart: out.leaseStart || null,
-                leaseEnd: out.leaseEnd || null,
-                active: true,
-                notes: ""
-              }];
-              tenantsChanged = true;
-            }
-            // Clear inline fields so they don't show as duplicate
-            propsChanged = true;
-            out = { ...out, tenantName: null, rent: null, leaseStart: null, leaseEnd: null };
-          }
-          return out;
+          if (!prop.category) { changed = true; return { ...prop, category: "Rental" }; }
+          return prop;
         });
         setProperties(migrated);
-        if (propsChanged) save("bk:properties", migrated);
+        if (changed) save("bk:properties", migrated);
       } else { setProperties(SEED_PROPERTIES); save("bk:properties", SEED_PROPERTIES); }
 
-      setTenants(workingTenants);
-      if (tenantsChanged) save("bk:tenants", workingTenants);
+      setTenants(t);
       setPayments(pm);
       setFlips(f);
       setNotes(n && typeof n === "object" ? n : (n ? { _general: n } : {}));
@@ -2132,9 +2106,9 @@ function JMCView({ company, allCompanies, bills, saveBills, properties, saveProp
           tenants={tenants} saveTenants={saveTenants} />
       )}
       {subTab === "rentals" && (
-        <PenciledPropertiesView companyId={company.id} properties={properties} saveProperties={saveProperties}
+        <JMCRentalsView companyId={company.id} properties={properties} saveProperties={saveProperties}
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills}
-          companies={allCompanies} payments={payments} savePayments={savePayments} />
+          companies={allCompanies} />
       )}
       {subTab === "payroll" && (
         <JMCPayrollView companyId={company.id} bills={bills} saveBills={saveBills} companies={allCompanies}
