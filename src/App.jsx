@@ -227,12 +227,13 @@ export default function App({ onSignOut }) {
   const [flips, setFlips] = useState([]);
   const [notes, setNotes] = useState({});
   const [payrolls, setPayrolls] = useState([]);
+  const [quickLaunch, setQuickLaunch] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     (async () => {
       // Load everything in parallel instead of sequentially — much faster startup
-      const [c, b, p, t, pm, f, n, pr] = await Promise.all([
+      const [c, b, p, t, pm, f, n, pr, ql] = await Promise.all([
         load("bk:companies", null),
         load("bk:bills", null),
         load("bk:properties", null),
@@ -240,7 +241,8 @@ export default function App({ onSignOut }) {
         load("bk:payments", []),
         load("bk:flips", []),
         load("bk:notes", null),
-        load("bk:payrolls", [])
+        load("bk:payrolls", []),
+        load("bk:quickLaunch", [])
       ]);
 
       // Companies: apply name migration if needed
@@ -295,6 +297,7 @@ export default function App({ onSignOut }) {
       setFlips(f);
       setNotes(n && typeof n === "object" ? n : (n ? { _general: n } : {}));
       setPayrolls(pr);
+      setQuickLaunch(ql);
       setLoaded(true);
     })();
   }, []);
@@ -307,6 +310,7 @@ export default function App({ onSignOut }) {
   const saveFlips = (v) => { setFlips(v); save("bk:flips", v); };
   const saveNotes = (v) => { setNotes(v); save("bk:notes", v); };
   const savePayrolls = (v) => { setPayrolls(v); save("bk:payrolls", v); };
+  const saveQuickLaunch = (v) => { setQuickLaunch(v); save("bk:quickLaunch", v); };
 
   if (!loaded) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: C.paper }}>
@@ -368,7 +372,7 @@ export default function App({ onSignOut }) {
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         {tab === "dashboard" && (
-          <Dashboard {...{ companies, bills, saveBills, properties, tenants, payments, savePayments, flips }} setTab={setTab} />
+          <Dashboard {...{ companies, bills, saveBills, properties, tenants, payments, savePayments, flips, quickLaunch, saveQuickLaunch }} setTab={setTab} />
         )}
         {activeCompany && activeCompany.id === "flip" && (
           <JMCView
@@ -561,7 +565,7 @@ function CompanyView({ company, allCompanies, bills, saveBills, properties, save
 // ============================================================
 // DASHBOARD
 // ============================================================
-function Dashboard({ companies, bills, saveBills, properties, tenants, payments, savePayments, flips, setTab }) {
+function Dashboard({ companies, bills, saveBills, properties, tenants, payments, savePayments, flips, quickLaunch, saveQuickLaunch, setTab }) {
   const cm = monthKey(todayISO());
   const companyById = Object.fromEntries(companies.map(c => [c.id, c]));
 
@@ -607,6 +611,8 @@ function Dashboard({ companies, bills, saveBills, properties, tenants, payments,
           Everything across all {companies.length} companies — click a company tab above for detail.
         </p>
       </div>
+
+      <QuickLaunchGrid quickLaunch={quickLaunch} saveQuickLaunch={saveQuickLaunch} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <StatCard label="Overdue" value={overdue.length} sub={overdue.length ? "needs attention" : "all caught up"}
@@ -4556,6 +4562,175 @@ function JECOView({ company, allCompanies, bills, saveBills, properties, flips, 
       {subTab === "notes" && (
         <NotesView notes={notes} saveNotes={saveNotes} companyId={company.id} companyName={company.name} />
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// QUICK LAUNCH GRID (dashboard widgets)
+// ============================================================
+function QuickLaunchGrid({ quickLaunch, saveQuickLaunch }) {
+  const [editing, setEditing] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+
+  const sortedTiles = [...(quickLaunch || [])].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+  const handleSave = (tile) => {
+    if (editing && editing.id) {
+      saveQuickLaunch(quickLaunch.map(t => t.id === editing.id ? { ...editing, ...tile } : t));
+    } else {
+      const maxOrder = quickLaunch.reduce((m, t) => Math.max(m, t.sortOrder || 0), 0);
+      saveQuickLaunch([...(quickLaunch || []), { id: uid(), sortOrder: maxOrder + 1, ...tile }]);
+    }
+    setEditing(null); setShowForm(false);
+  };
+  const handleDelete = (id) => {
+    if (confirm("Remove this quick launch tile?")) {
+      saveQuickLaunch(quickLaunch.filter(t => t.id !== id));
+    }
+  };
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-serif text-lg" style={{ color: C.ink }}>Quick Launch</h3>
+        <Btn size="sm" variant="secondary" onClick={() => { setEditing(null); setShowForm(true); }}>
+          <Plus size={12} /> Add Link
+        </Btn>
+      </div>
+      <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-8 gap-3">
+        {sortedTiles.map(t => (
+          <QuickLaunchTile key={t.id} tile={t}
+            onOpen={() => window.open(t.url, "_blank", "noopener,noreferrer")}
+            onEdit={() => { setEditing(t); setShowForm(true); }}
+            onDelete={() => handleDelete(t.id)} />
+        ))}
+        {sortedTiles.length === 0 && (
+          <button onClick={() => { setEditing(null); setShowForm(true); }}
+            className="col-span-full p-6 rounded border-2 border-dashed hover:bg-black/5 transition"
+            style={{ borderColor: C.inkLine, color: C.inkSoft }}>
+            <p className="font-serif italic text-sm">No links yet. Click Add Link to add one — great for Pipeline, MLS, Supabase, GitHub, or anything you visit often.</p>
+          </button>
+        )}
+      </div>
+
+      <Modal open={showForm} onClose={() => { setShowForm(false); setEditing(null); }}
+        title={editing ? "Edit Quick Launch" : "Add Quick Launch"}>
+        <QuickLaunchForm tile={editing} onSave={handleSave}
+          onCancel={() => { setShowForm(false); setEditing(null); }} />
+      </Modal>
+    </div>
+  );
+}
+
+function QuickLaunchTile({ tile, onOpen, onEdit, onDelete }) {
+  const [hover, setHover] = useState(false);
+  const [iconErr, setIconErr] = useState(false);
+  let domain = "";
+  try { domain = new URL(tile.url).hostname; } catch {}
+  const favicon = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : "";
+
+  return (
+    <div className="relative"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}>
+      <button onClick={onOpen}
+        className="w-full p-3 rounded-lg flex flex-col items-center gap-2 transition hover:shadow-md"
+        style={{ background: C.paperSoft, border: `1px solid ${C.inkLine}`, minHeight: "92px" }}>
+        <div className="text-3xl leading-none flex items-center justify-center" style={{ height: "36px", width: "36px" }}>
+          {tile.emoji ? (
+            <span>{tile.emoji}</span>
+          ) : favicon && !iconErr ? (
+            <img src={favicon} alt="" className="w-8 h-8 rounded" onError={() => setIconErr(true)} />
+          ) : (
+            <span style={{ color: C.inkSoft }}>🔗</span>
+          )}
+        </div>
+        <span className="font-sans text-xs text-center leading-tight line-clamp-2" style={{ color: C.ink }}>{tile.name}</span>
+      </button>
+      {hover && (
+        <div className="absolute top-1 right-1 flex gap-1">
+          <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            className="p-1 rounded bg-white hover:bg-gray-100 shadow-sm" title="Edit">
+            <Pencil size={10} style={{ color: C.inkSoft }} />
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="p-1 rounded bg-white hover:bg-red-50 shadow-sm" title="Remove">
+            <Trash2 size={10} style={{ color: C.red }} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuickLaunchForm({ tile, onSave, onCancel }) {
+  const [form, setForm] = useState({
+    name: tile?.name || "",
+    url: tile?.url || "",
+    emoji: tile?.emoji || ""
+  });
+  const update = (k, v) => setForm({ ...form, [k]: v });
+
+  const normalizeUrl = (u) => {
+    const trimmed = u.trim();
+    if (!trimmed) return "";
+    if (!/^https?:\/\//i.test(trimmed)) return "https://" + trimmed;
+    return trimmed;
+  };
+
+  const handleSubmit = () => {
+    if (!form.name || !form.url) return;
+    onSave({ ...form, url: normalizeUrl(form.url) });
+  };
+
+  let previewDomain = "";
+  try { previewDomain = new URL(normalizeUrl(form.url)).hostname; } catch {}
+  const previewFavicon = previewDomain ? `https://www.google.com/s2/favicons?domain=${previewDomain}&sz=64` : "";
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Name *</Label>
+        <Input value={form.name} onChange={e => update("name", e.target.value)}
+          placeholder="e.g. Pipeline, MLS, Supabase" className="block w-full mt-1" />
+      </div>
+      <div>
+        <Label>URL *</Label>
+        <Input value={form.url} onChange={e => update("url", e.target.value)}
+          placeholder="e.g. pipeline-app-pi.vercel.app" className="block w-full mt-1" />
+        <p className="font-sans text-xs mt-1" style={{ color: C.inkSoft }}>
+          You can paste with or without https:// — we'll add it if missing.
+        </p>
+      </div>
+      <div>
+        <Label>Emoji (optional)</Label>
+        <Input value={form.emoji} onChange={e => update("emoji", e.target.value)}
+          placeholder="📊 🏠 💰 or leave blank to use site's icon" className="block w-full mt-1" maxLength={4} />
+        <p className="font-sans text-xs mt-1" style={{ color: C.inkSoft }}>
+          Paste any emoji here (on Mac: Ctrl+Cmd+Space). If blank, we'll try to fetch the website's icon.
+        </p>
+      </div>
+
+      {(form.name || form.url) && (
+        <div>
+          <Label>Preview</Label>
+          <div className="mt-2 flex items-center gap-3 p-3 rounded" style={{ background: C.paperSoft, border: `1px solid ${C.inkLine}` }}>
+            <div className="text-3xl">
+              {form.emoji ? form.emoji : previewFavicon ? <img src={previewFavicon} alt="" className="w-8 h-8 rounded" /> : "🔗"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-sans font-medium text-sm truncate" style={{ color: C.ink }}>{form.name || "(no name)"}</p>
+              <p className="font-sans text-xs truncate" style={{ color: C.inkSoft }}>{form.url || "(no url)"}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 pt-2">
+        <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+        <Btn onClick={handleSubmit} disabled={!form.name || !form.url}>Save</Btn>
+      </div>
     </div>
   );
 }
