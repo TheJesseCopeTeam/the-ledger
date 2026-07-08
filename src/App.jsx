@@ -2088,7 +2088,7 @@ function JMCView({ company, allCompanies, bills, saveBills, properties, saveProp
         <JMCProjectsView companyId={company.id} flips={flips} saveFlips={saveFlips}
           bills={bills} saveBills={saveBills} companies={allCompanies}
           properties={properties} saveProperties={saveProperties}
-          tenants={tenants} saveTenants={saveTenants} /> />
+          tenants={tenants} saveTenants={saveTenants} />
       )}
       {subTab === "rentals" && (
         <JMCRentalsView companyId={company.id} properties={properties} saveProperties={saveProperties}
