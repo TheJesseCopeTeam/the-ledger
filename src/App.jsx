@@ -2106,9 +2106,9 @@ function JMCView({ company, allCompanies, bills, saveBills, properties, saveProp
           tenants={tenants} saveTenants={saveTenants} />
       )}
       {subTab === "rentals" && (
-        <JMCRentalsView companyId={company.id} properties={properties} saveProperties={saveProperties}
+        <PenciledPropertiesView companyId={company.id} properties={properties} saveProperties={saveProperties}
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills}
-          companies={allCompanies} />
+          companies={allCompanies} payments={payments} savePayments={savePayments} />
       )}
       {subTab === "payroll" && (
         <JMCPayrollView companyId={company.id} bills={bills} saveBills={saveBills} companies={allCompanies}
