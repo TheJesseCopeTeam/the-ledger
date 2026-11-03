@@ -31,7 +31,8 @@ const TABLES = {
   "bk:payments": "payments",
   "bk:flips": "flips",
   "bk:payrolls": "payrolls",
-  "bk:quickLaunch": "quick_launch"
+  "bk:quickLaunch": "quick_launch",
+  "bk:propertyDocuments": "property_documents"
 };
 
 // Load - returns array (or object for notes)
@@ -55,48 +56,58 @@ export async function load(key, fallback) {
   }
 }
 
+// Save queue — ensures saves happen in order so foreign key constraints
+// aren't violated when a payment references a tenant that hasn't been
+// written yet.
+let saveQueue = Promise.resolve();
+
 // Save - takes the full array (or object for notes); syncs with the table
 export async function save(key, value) {
-  try {
-    if (key === "bk:notes") {
-      const { data: existing } = await supabase.from("company_notes").select("company_id");
-      const existingIds = new Set((existing || []).map((r) => r.company_id));
-      const newIds = new Set(Object.keys(value || {}));
+  const runner = async () => {
+    try {
+      if (key === "bk:notes") {
+        const { data: existing } = await supabase.from("company_notes").select("company_id");
+        const existingIds = new Set((existing || []).map((r) => r.company_id));
+        const newIds = new Set(Object.keys(value || {}));
+        const toDelete = [...existingIds].filter((id) => !newIds.has(id));
+        if (toDelete.length > 0) {
+          await supabase.from("company_notes").delete().in("company_id", toDelete);
+        }
+        const rows = Object.entries(value || {}).map(([company_id, content]) => ({
+          company_id,
+          content,
+          updated_at: new Date().toISOString()
+        }));
+        if (rows.length > 0) {
+          await supabase.from("company_notes").upsert(rows, { onConflict: "company_id" });
+        }
+        return;
+      }
+
+      const table = TABLES[key];
+      if (!table) throw new Error("Unknown storage key: " + key);
+
+      const arr = Array.isArray(value) ? value : [];
+      const { data: existing } = await supabase.from(table).select("id");
+      const existingIds = new Set((existing || []).map((r) => r.id));
+      const newIds = new Set(arr.map((v) => v.id));
+
       const toDelete = [...existingIds].filter((id) => !newIds.has(id));
       if (toDelete.length > 0) {
-        await supabase.from("company_notes").delete().in("company_id", toDelete);
+        await supabase.from(table).delete().in("id", toDelete);
       }
-      const rows = Object.entries(value || {}).map(([company_id, content]) => ({
-        company_id,
-        content,
-        updated_at: new Date().toISOString()
-      }));
-      if (rows.length > 0) {
-        await supabase.from("company_notes").upsert(rows, { onConflict: "company_id" });
+
+      if (arr.length > 0) {
+        const rows = arr.map(objToDb);
+        const { error } = await supabase.from(table).upsert(rows, { onConflict: "id" });
+        if (error) throw error;
       }
-      return;
+    } catch (e) {
+      console.error("save failed for", key, e);
+      alert("Failed to save: " + (e?.message || "unknown error"));
     }
-
-    const table = TABLES[key];
-    if (!table) throw new Error("Unknown storage key: " + key);
-
-    const arr = Array.isArray(value) ? value : [];
-    const { data: existing } = await supabase.from(table).select("id");
-    const existingIds = new Set((existing || []).map((r) => r.id));
-    const newIds = new Set(arr.map((v) => v.id));
-
-    const toDelete = [...existingIds].filter((id) => !newIds.has(id));
-    if (toDelete.length > 0) {
-      await supabase.from(table).delete().in("id", toDelete);
-    }
-
-    if (arr.length > 0) {
-      const rows = arr.map(objToDb);
-      const { error } = await supabase.from(table).upsert(rows, { onConflict: "id" });
-      if (error) throw error;
-    }
-  } catch (e) {
-    console.error("save failed for", key, e);
-    alert("Failed to save: " + (e?.message || "unknown error"));
-  }
+  };
+  // Chain onto the queue - even on error, let subsequent saves proceed
+  saveQueue = saveQueue.then(runner, runner);
+  return saveQueue;
 }
