@@ -5,6 +5,7 @@ import {
   Users, DollarSign, Bell, ChevronDown, ChevronRight, Search
 } from "lucide-react";
 import { load, save } from "./dataLayer";
+import PropertyDocumentsSection from "./PropertyDocuments.jsx";
 
 // ============================================================
 // STORAGE HELPERS - now uses Supabase via dataLayer
@@ -52,9 +53,9 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 // SEED DATA
 // ============================================================
 const SEED_COMPANIES = [
-  { id: "flip", name: "JMC Investments", type: "Corporation", color: "#c4602f", showPayroll: true, payrollDays: [1, 10, 25], notes: "House flipping company. 5 employees + 2 owners on payroll. Also holds rentals being transferred to Penciled Properties." },
-  { id: "rentals", name: "Penciled Properties", type: "LLC", color: "#5b7a8c", showPayroll: false, payrollDays: [1, 10, 25], notes: "New rental holding company. Currently: 1 house, 3 duplexes, 1 storage unit. Adding ~7 duplexes and 5+ homes." },
-  { id: "realtor", name: "JECO Realty", type: "LLC", color: "#8c7a5b", showPayroll: true, payrollDays: [1], notes: "Realtor company. 1 person on payroll, paid the 1st of each month." }
+  { id: "flip", name: "JMC Investments", type: "Corporation", color: "#c4602f", showPayroll: true, payrollDays: [1, 10, 25], paydayDirection: "previous", notes: "House flipping company. 5 employees + 2 owners on payroll. Also holds rentals being transferred to Penciled Properties." },
+  { id: "rentals", name: "Penciled Properties", type: "LLC", color: "#5b7a8c", showPayroll: false, payrollDays: [1, 10, 25], paydayDirection: "previous", notes: "New rental holding company. Currently: 1 house, 3 duplexes, 1 storage unit. Adding ~7 duplexes and 5+ homes." },
+  { id: "realtor", name: "JECO Realty", type: "LLC", color: "#8c7a5b", showPayroll: true, payrollDays: [1], paydayDirection: "next", notes: "Realtor company. 1 person on payroll, paid the 1st of each month. If 1st is weekend/holiday, payday moves to next business day." }
 ];
 
 const thisYear = new Date().getFullYear();
@@ -124,32 +125,32 @@ const Style = () => (
 );
 
 const C = {
-  paper: "#f4f5f7",
-  paperSoft: "#e5e7eb",
-  ink: "#1f2937",
-  inkSoft: "#6b7280",
-  inkLine: "#d1d5db",
-  accent: "#4b5563",
-  accentSoft: "#9ca3af",
-  green: "#4d7c5f",
-  red: "#b04a4a",
-  amber: "#b8862f"
+  paper: "#ffffff",
+  paperSoft: "#f5f7fa",
+  ink: "#1e293b",
+  inkSoft: "#64748b",
+  inkLine: "#e2e8f0",
+  accent: "#0077c5",
+  accentSoft: "#dbeafe",
+  green: "#2ca01c",
+  red: "#d13438",
+  amber: "#e08e0b"
 };
 
 // ============================================================
 // UI PRIMITIVES
 // ============================================================
 const Btn = ({ children, onClick, variant = "primary", size = "md", className = "", type = "button", disabled }) => {
-  const base = "font-sans font-medium transition rounded inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
-  const sizes = { sm: "px-2.5 py-1 text-xs", md: "px-3.5 py-2 text-sm", lg: "px-5 py-2.5 text-base" };
+  const base = "font-sans font-medium transition rounded-md inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
+  const sizes = { sm: "px-2.5 py-1 text-xs", md: "px-4 py-2 text-sm", lg: "px-5 py-2.5 text-base" };
   const variants = {
-    primary: "text-white hover:opacity-90",
-    secondary: "border hover:bg-black/5",
-    ghost: "hover:bg-black/5",
-    danger: "text-white hover:opacity-90"
+    primary: "text-white hover:brightness-110 shadow-sm",
+    secondary: "border hover:bg-slate-50",
+    ghost: "hover:bg-slate-100",
+    danger: "text-white hover:brightness-110 shadow-sm"
   };
-  const styles = variant === "primary" ? { background: C.ink, color: C.paper }
-    : variant === "secondary" ? { borderColor: C.inkLine, color: C.ink }
+  const styles = variant === "primary" ? { background: C.accent, color: "#fff" }
+    : variant === "secondary" ? { borderColor: C.inkLine, color: C.ink, background: C.paper }
     : variant === "danger" ? { background: C.red }
     : { color: C.ink };
   return (
@@ -162,13 +163,13 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", className = 
 
 const Input = ({ className = "", ...props }) => (
   <input {...props}
-    className={`font-sans px-3 py-2 text-sm rounded border focus:outline-none focus:ring-2 ${className}`}
+    className={`font-sans px-3 py-2 text-sm rounded-md border focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 ${className}`}
     style={{ background: C.paper, borderColor: C.inkLine, color: C.ink, ...(props.style || {}) }} />
 );
 
 const Select = ({ children, className = "", ...props }) => (
   <select {...props}
-    className={`font-sans px-3 py-2 text-sm rounded border focus:outline-none ${className}`}
+    className={`font-sans px-3 py-2 text-sm rounded-md border focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 ${className}`}
     style={{ background: C.paper, borderColor: C.inkLine, color: C.ink }}>
     {children}
   </select>
@@ -176,18 +177,18 @@ const Select = ({ children, className = "", ...props }) => (
 
 const Textarea = ({ className = "", ...props }) => (
   <textarea {...props}
-    className={`font-sans px-3 py-2 text-sm rounded border focus:outline-none resize-none ${className}`}
+    className={`font-sans px-3 py-2 text-sm rounded-md border focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 resize-none ${className}`}
     style={{ background: C.paper, borderColor: C.inkLine, color: C.ink }} />
 );
 
 const Label = ({ children, className = "" }) => (
-  <label className={`font-sans text-xs uppercase tracking-wider ${className}`}
-    style={{ color: C.inkSoft, letterSpacing: "0.08em" }}>{children}</label>
+  <label className={`font-sans text-xs font-medium ${className}`}
+    style={{ color: C.inkSoft }}>{children}</label>
 );
 
 const Card = ({ children, className = "", style = {}, onClick }) => (
-  <div className={`rounded ${className}`}
-    style={{ background: C.paper, border: `1px solid ${C.inkLine}`, ...style }}
+  <div className={`rounded-lg ${className}`}
+    style={{ background: C.paper, border: `1px solid ${C.inkLine}`, boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)", ...style }}
     onClick={onClick}>{children}</div>
 );
 
@@ -195,13 +196,13 @@ const Modal = ({ open, onClose, title, children, wide }) => {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(31, 42, 58, 0.55)" }} onClick={onClose}>
-      <div className={`w-full ${wide ? "max-w-3xl" : "max-w-lg"} max-h-[90vh] overflow-y-auto rounded`}
-        style={{ background: C.paper, border: `1px solid ${C.inkLine}` }}
+      style={{ background: "rgba(15, 23, 42, 0.45)" }} onClick={onClose}>
+      <div className={`w-full ${wide ? "max-w-3xl" : "max-w-lg"} max-h-[90vh] overflow-y-auto rounded-lg shadow-xl`}
+        style={{ background: C.paper }}
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: C.inkLine }}>
-          <h3 className="font-serif text-xl" style={{ color: C.ink }}>{title}</h3>
-          <button onClick={onClose} className="hover:opacity-60"><X size={20} style={{ color: C.ink }} /></button>
+          <h3 className="font-sans text-lg font-semibold" style={{ color: C.ink }}>{title}</h3>
+          <button onClick={onClose} className="hover:opacity-60"><X size={20} style={{ color: C.inkSoft }} /></button>
         </div>
         <div className="p-6">{children}</div>
       </div>
@@ -210,8 +211,8 @@ const Modal = ({ open, onClose, title, children, wide }) => {
 };
 
 const Pill = ({ children, color }) => (
-  <span className="font-sans text-xs px-2 py-0.5 rounded-full"
-    style={{ background: color + "22", color, border: `1px solid ${color}44` }}>{children}</span>
+  <span className="font-sans text-xs font-medium px-2 py-0.5 rounded-full"
+    style={{ background: color + "18", color }}>{children}</span>
 );
 
 // ============================================================
@@ -228,12 +229,13 @@ export default function App({ onSignOut }) {
   const [notes, setNotes] = useState({});
   const [payrolls, setPayrolls] = useState([]);
   const [quickLaunch, setQuickLaunch] = useState([]);
+  const [propertyDocuments, setPropertyDocuments] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     (async () => {
       // Load everything in parallel instead of sequentially — much faster startup
-      const [c, b, p, t, pm, f, n, pr, ql] = await Promise.all([
+      const [c, b, p, t, pm, f, n, pr, ql, pd] = await Promise.all([
         load("bk:companies", null),
         load("bk:bills", null),
         load("bk:properties", null),
@@ -242,7 +244,8 @@ export default function App({ onSignOut }) {
         load("bk:flips", []),
         load("bk:notes", null),
         load("bk:payrolls", []),
-        load("bk:quickLaunch", [])
+        load("bk:quickLaunch", []),
+        load("bk:propertyDocuments", [])
       ]);
 
       // Companies: apply name migration if needed
@@ -262,6 +265,10 @@ export default function App({ onSignOut }) {
           }
           if (!updated.payrollDays) {
             updated = { ...updated, payrollDays: updated.id === "realtor" ? [1] : [1, 10, 25] };
+            changed = true;
+          }
+          if (!updated.paydayDirection) {
+            updated = { ...updated, paydayDirection: updated.id === "realtor" ? "next" : "previous" };
             changed = true;
           }
           return updated;
@@ -298,6 +305,7 @@ export default function App({ onSignOut }) {
       setNotes(n && typeof n === "object" ? n : (n ? { _general: n } : {}));
       setPayrolls(pr);
       setQuickLaunch(ql);
+      setPropertyDocuments(pd);
       setLoaded(true);
     })();
   }, []);
@@ -311,6 +319,7 @@ export default function App({ onSignOut }) {
   const saveNotes = (v) => { setNotes(v); save("bk:notes", v); };
   const savePayrolls = (v) => { setPayrolls(v); save("bk:payrolls", v); };
   const saveQuickLaunch = (v) => { setQuickLaunch(v); save("bk:quickLaunch", v); };
+  const savePropertyDocuments = (v) => { setPropertyDocuments(v); save("bk:propertyDocuments", v); };
 
   if (!loaded) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: C.paper }}>
@@ -329,24 +338,29 @@ export default function App({ onSignOut }) {
   const activeCompany = activeCompanyId ? companies.find(c => c.id === activeCompanyId) : null;
 
   return (
-    <div className="min-h-screen font-sans" style={{ background: C.paper, color: C.ink }}>
+    <div className="min-h-screen font-sans" style={{ background: C.paperSoft, color: C.ink }}>
       <Style />
 
-      <header className="border-b" style={{ borderColor: C.inkLine, background: C.paperSoft }}>
-        <div className="max-w-7xl mx-auto px-6 py-5 flex items-end justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="font-serif text-3xl font-medium" style={{ color: C.ink }}>The Ledger</h1>
-            <p className="font-serif italic text-sm mt-0.5" style={{ color: C.inkSoft }}>
-              Bookkeeping & rental management — {companies.length} companies
-            </p>
+      <header style={{ background: C.paper, borderBottom: `1px solid ${C.inkLine}` }}>
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md flex items-center justify-center font-bold text-white" style={{ background: C.accent }}>
+              L
+            </div>
+            <div>
+              <h1 className="font-sans text-xl font-semibold" style={{ color: C.ink }}>The Ledger</h1>
+              <p className="font-sans text-xs" style={{ color: C.inkSoft }}>
+                {companies.length} companies
+              </p>
+            </div>
           </div>
-          <div className="text-right flex items-center gap-3">
-            <p className="font-serif text-sm" style={{ color: C.inkSoft }}>
+          <div className="flex items-center gap-3">
+            <p className="font-sans text-xs hidden md:block" style={{ color: C.inkSoft }}>
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
             </p>
             {onSignOut && (
               <button onClick={onSignOut}
-                className="font-sans text-xs px-2 py-1 rounded hover:bg-black/5"
+                className="font-sans text-xs px-3 py-1.5 rounded-md hover:bg-slate-50"
                 style={{ color: C.inkSoft, border: `1px solid ${C.inkLine}` }}>
                 Sign out
               </button>
@@ -360,8 +374,8 @@ export default function App({ onSignOut }) {
             const active = tab === t.id;
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`px-4 py-3 flex items-center gap-2 font-sans text-sm whitespace-nowrap transition ${active ? "tab-active font-semibold" : "hover:bg-black/5"}`}
-                style={{ color: active ? t.color : C.ink, "--accent": t.color }}>
+                className={`px-4 py-3 flex items-center gap-2 font-sans text-sm whitespace-nowrap transition ${active ? "tab-active font-semibold" : "hover:bg-slate-50"}`}
+                style={{ color: active ? C.accent : C.inkSoft, "--accent": C.accent }}>
                 <Icon size={16} />
                 {t.label}
               </button>
@@ -385,6 +399,7 @@ export default function App({ onSignOut }) {
             flips={flips} saveFlips={saveFlips}
             notes={notes} saveNotes={saveNotes}
             payrolls={payrolls} savePayrolls={savePayrolls}
+            propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments}
           />
         )}
         {activeCompany && activeCompany.id === "rentals" && (
@@ -398,6 +413,7 @@ export default function App({ onSignOut }) {
             flips={flips}
             notes={notes} saveNotes={saveNotes}
             payrolls={payrolls} savePayrolls={savePayrolls}
+            propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments}
           />
         )}
         {activeCompany && activeCompany.id === "realtor" && (
@@ -594,11 +610,11 @@ function Dashboard({ companies, bills, saveBills, properties, tenants, payments,
   };
 
   const StatCard = ({ label, value, sub, color, onClick }) => (
-    <Card className="p-5 cursor-pointer hover:shadow-sm transition" style={{ borderLeft: `3px solid ${color}` }}>
+    <Card className="p-5 cursor-pointer hover:shadow-md transition">
       <div onClick={onClick}>
-        <p className="font-sans text-xs uppercase tracking-wider" style={{ color: C.inkSoft, letterSpacing: "0.08em" }}>{label}</p>
-        <p className="font-serif text-3xl mt-1.5" style={{ color: C.ink }}>{value}</p>
-        {sub && <p className="font-sans text-xs mt-1" style={{ color: C.inkSoft }}>{sub}</p>}
+        <p className="font-sans text-xs font-medium uppercase" style={{ color: C.inkSoft, letterSpacing: "0.06em" }}>{label}</p>
+        <p className="font-sans text-4xl font-semibold mt-2" style={{ color }}>{value}</p>
+        {sub && <p className="font-sans text-xs mt-1.5" style={{ color: C.inkSoft }}>{sub}</p>}
       </div>
     </Card>
   );
@@ -1787,6 +1803,7 @@ function CompanyForm({ company, onSave, onCancel }) {
     color: company?.color || "#5b7a8c",
     showPayroll: company?.showPayroll !== false,
     payrollDays: company?.payrollDays || [1, 10, 25],
+    paydayDirection: company?.paydayDirection || "previous",
     notes: company?.notes || ""
   });
   const update = (k, v) => setForm({ ...form, [k]: v });
@@ -1840,6 +1857,17 @@ function CompanyForm({ company, onSave, onCancel }) {
             <p className="font-sans text-xs mt-1" style={{ color: C.inkSoft }}>
               Enter day numbers (1-31) separated by commas. The holiday/weekend rule still applies — payday moves to the first business day before.
             </p>
+            <div className="mt-3">
+              <Label>If payday lands on a weekend or holiday</Label>
+              <Select value={form.paydayDirection} onChange={e => update("paydayDirection", e.target.value)}
+                className="block w-full mt-1">
+                <option value="previous">Move to the previous business day (pay early)</option>
+                <option value="next">Move to the next business day (pay after)</option>
+              </Select>
+              <p className="font-sans text-xs mt-1" style={{ color: C.inkSoft }}>
+                Submit deadline is always 2 business days before payday.
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -1876,14 +1904,28 @@ const isWeekendISO = (iso) => {
 };
 const isHolidayISO = (iso) => US_FEDERAL_HOLIDAYS.has(iso);
 
-// If payday falls on a weekend or federal holiday, move to the first business day BEFORE.
-const computePayday = (targetIso) => {
+// If payday falls on a weekend or federal holiday, move to first business day.
+// direction: "previous" (default, for most companies) or "next" (e.g. JECO)
+const computePayday = (targetIso, direction = "previous") => {
   let d = new Date(targetIso + "T00:00:00");
   const iso = () => d.toISOString().split("T")[0];
+  const step = direction === "next" ? 1 : -1;
   while (isWeekendISO(iso()) || isHolidayISO(iso())) {
-    d.setDate(d.getDate() - 1);
+    d.setDate(d.getDate() + step);
   }
   return iso();
+};
+
+// Count N business days backward from a given date (skips weekends + federal holidays)
+const businessDaysBefore = (iso, n) => {
+  let d = new Date(iso + "T00:00:00");
+  let count = n;
+  while (count > 0) {
+    d.setDate(d.getDate() - 1);
+    const dISO = d.toISOString().split("T")[0];
+    if (!isWeekendISO(dISO) && !isHolidayISO(dISO)) count--;
+  }
+  return d.toISOString().split("T")[0];
 };
 
 // IRS semi-weekly deposit rule:
@@ -2015,7 +2057,7 @@ function CalendarGrid({ month, events, onChangeMonth, onDayClick, onEventClick }
 // ============================================================
 // JMC VIEW (custom per-company layout for JMC Investments)
 // ============================================================
-function JMCView({ company, allCompanies, bills, saveBills, properties, saveProperties, tenants, saveTenants, payments, savePayments, flips, saveFlips, notes, saveNotes, payrolls, savePayrolls }) {
+function JMCView({ company, allCompanies, bills, saveBills, properties, saveProperties, tenants, saveTenants, payments, savePayments, flips, saveFlips, notes, saveNotes, payrolls, savePayrolls, propertyDocuments, savePropertyDocuments }) {
   const [subTab, setSubTab] = useState("reminders");
 
   const myBills = bills.filter(b => b.companyId === company.id);
@@ -2108,7 +2150,8 @@ function JMCView({ company, allCompanies, bills, saveBills, properties, saveProp
       {subTab === "rentals" && (
         <PenciledPropertiesView companyId={company.id} properties={properties} saveProperties={saveProperties}
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills}
-          companies={allCompanies} payments={payments} savePayments={savePayments} />
+          companies={allCompanies} payments={payments} savePayments={savePayments}
+          propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments} />
       )}
       {subTab === "payroll" && (
         <JMCPayrollView companyId={company.id} bills={bills} saveBills={saveBills} companies={allCompanies}
@@ -3272,8 +3315,8 @@ function JMCPayrollView({ companyId, bills, saveBills, companies, payrolls, save
       payrollDays.forEach(day => {
         const safeDay = Math.min(day, new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate());
         const target = `${ym}-${String(safeDay).padStart(2, "0")}`;
-        const payday = computePayday(target);
-        const submitDate = addDays(payday, -2);
+        const payday = computePayday(target, company?.paydayDirection || "previous");
+        const submitDate = businessDaysBefore(payday, 2);
         const eftpsDate = computeEftps(payday);
         entries.push({
           id: uid(),
@@ -3504,7 +3547,7 @@ function PayrollEntryForm({ entry, onSave, onCancel, onDelete }) {
   const initialPayday = entry?.payday || todayISO();
   const [form, setForm] = useState({
     payday: initialPayday,
-    submitDate: entry?.submitDate || addDays(initialPayday, -2),
+    submitDate: entry?.submitDate || businessDaysBefore(initialPayday, 2),
     eftpsDate: entry?.eftpsDate || computeEftps(initialPayday),
     label: entry?.label || "Payday",
     notes: entry?.notes || "",
@@ -3513,7 +3556,7 @@ function PayrollEntryForm({ entry, onSave, onCancel, onDelete }) {
   const update = (k, v) => {
     if (k === "payday" && (!entry || !entry.id)) {
       // For new entries, auto-update submit + EFTPS when payday changes
-      setForm({ ...form, payday: v, submitDate: addDays(v, -2), eftpsDate: computeEftps(v) });
+      setForm({ ...form, payday: v, submitDate: businessDaysBefore(v, 2), eftpsDate: computeEftps(v) });
     } else {
       setForm({ ...form, [k]: v });
     }
@@ -3678,7 +3721,7 @@ function JMCGeneralBillsView({ companyId, bills, saveBills, companies }) {
 // ============================================================
 // PENCILED PROPERTIES — CUSTOM VIEW (rental holding company)
 // ============================================================
-function PenciledView({ company, allCompanies, bills, saveBills, properties, saveProperties, tenants, saveTenants, payments, savePayments, flips, notes, saveNotes, payrolls, savePayrolls }) {
+function PenciledView({ company, allCompanies, bills, saveBills, properties, saveProperties, tenants, saveTenants, payments, savePayments, flips, notes, saveNotes, payrolls, savePayrolls, propertyDocuments, savePropertyDocuments }) {
   const [subTab, setSubTab] = useState("reminders");
 
   const myBills = bills.filter(b => b.companyId === company.id);
@@ -3767,7 +3810,8 @@ function PenciledView({ company, allCompanies, bills, saveBills, properties, sav
       {subTab === "properties" && (
         <PenciledPropertiesView companyId={company.id} properties={properties} saveProperties={saveProperties}
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills} companies={allCompanies}
-          payments={payments} savePayments={savePayments} />
+          payments={payments} savePayments={savePayments}
+          propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments} />
       )}
       {subTab === "rentroll" && (
         <PenciledRentRollView companyId={company.id} properties={properties} tenants={tenants}
@@ -3790,7 +3834,7 @@ function PenciledView({ company, allCompanies, bills, saveBills, properties, sav
 // ============================================================
 // PENCILED: PROPERTIES LIST + FORM
 // ============================================================
-function PenciledPropertiesView({ companyId, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, payments, savePayments }) {
+function PenciledPropertiesView({ companyId, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, payments, savePayments, propertyDocuments, savePropertyDocuments }) {
   const [editingProp, setEditingProp] = useState(null);
   const [showPropForm, setShowPropForm] = useState(false);
   const [openProp, setOpenProp] = useState(null);
@@ -3855,6 +3899,7 @@ function PenciledPropertiesView({ companyId, properties, saveProperties, tenants
         <PenciledPropertyDetailView property={openProperty} properties={properties} saveProperties={saveProperties}
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills} companies={companies}
           payments={payments} savePayments={savePayments}
+          propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments}
           onBack={() => setOpenProp(null)}
           onEdit={() => { setEditingProp(openProperty); setShowPropForm(true); }}
           onDelete={() => handleDeleteProp(openProperty.id)}
@@ -4072,7 +4117,7 @@ function PenciledPropertyForm({ property, existingTenants = [], onSave, onCancel
 // ============================================================
 // PENCILED: PROPERTY DETAIL VIEW
 // ============================================================
-function PenciledPropertyDetailView({ property, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, payments, savePayments, onBack, onEdit, onDelete, onTransfer }) {
+function PenciledPropertyDetailView({ property, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, payments, savePayments, propertyDocuments, savePropertyDocuments, onBack, onEdit, onDelete, onTransfer }) {
   const [editingTenant, setEditingTenant] = useState(null);
   const [showTenantForm, setShowTenantForm] = useState(false);
   const [editingBill, setEditingBill] = useState(null);
@@ -4252,6 +4297,13 @@ function PenciledPropertyDetailView({ property, properties, saveProperties, tena
           </div>
         )}
       </Card>
+
+      {/* Documents */}
+      <PropertyDocumentsSection
+        propertyId={property.id}
+        documents={propertyDocuments}
+        saveDocuments={savePropertyDocuments}
+      />
 
       {/* Utilities */}
       <Card className="p-5 mb-4">
