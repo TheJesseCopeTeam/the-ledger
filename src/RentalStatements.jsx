@@ -184,84 +184,135 @@ function summarizeBatch(parsedStatements) {
 
 // ===== Excel export =====
 
-function buildCombinedJELines(batch, summary) {
-  const BANK = "Checking";
+// Build a single journal entry for ONE property.
+// Structure:
+//   CREDIT: Rental Income - [property]
+//   DEBIT:  Owner Disbursement (cash sent to owner)
+//   DEBIT:  Management Fees
+//   DEBIT:  Maintenance / Utilities
+//   DEBIT or CREDIT: NSE Clearing (for timing differences)
+function buildPropertyJE(prop) {
+  const DISBURSE = "Owner Disbursement";
   const INCOME = "Rental Income";
   const MGMT = "Management Fees";
-  const MAINT = "Repairs & Maintenance";
+  const MAINT = "Maintenance";
   const CLEARING = "NSE Clearing";
 
+  const totalIncome = prop.income.reduce((s, i) => s + i.amount, 0);
+  const totalMgmt = prop.expenses.reduce((s, e) => s + e.amount, 0);
+  const totalMaint = prop.maintenance.reduce((s, e) => s + e.amount, 0);
+  const totalDist = prop.distributions.reduce((s, d) => s + d.amount, 0);
+
+  // No activity -> no JE
+  if (totalIncome === 0 && totalMgmt === 0 && totalMaint === 0 && totalDist === 0) {
+    return null;
+  }
+
+  const postDate = prop.dateEnd || new Date().toISOString().slice(0, 10);
+  const tenants = [...new Set(prop.income.map(i => i.tenant).filter(Boolean))].join(", ");
+  const memo = `NSE Statement ${fmtDateRange(prop.dateStart, prop.dateEnd)} — ${prop.property}${tenants ? ` (${tenants})` : ""}`;
+
   const lines = [];
-  const postDate = summary.statementEnd || new Date().toISOString().slice(0, 10);
-  const memo = `${batch.batchName} — NSE combined statements (${summary.statementCount} properties, ${fmtDateRange(summary.statementStart, summary.statementEnd)})`;
 
-  // Debit: distribution to Checking
-  if (summary.totalDist > 0) {
-    lines.push({ date: postDate, memo, account: BANK, debit: summary.totalDist, credit: 0 });
+  // DEBIT: Owner Disbursement (if any was sent)
+  if (totalDist > 0) {
+    lines.push({ date: postDate, memo, account: DISBURSE, debit: totalDist, credit: 0 });
   }
 
-  // Debit: Management fees
-  if (summary.totalMgmt > 0) {
-    lines.push({ date: postDate, memo, account: MGMT, debit: summary.totalMgmt, credit: 0 });
+  // DEBIT: Management Fees
+  if (totalMgmt > 0) {
+    lines.push({ date: postDate, memo, account: MGMT, debit: totalMgmt, credit: 0 });
   }
 
-  // Debit: Maintenance
-  if (summary.totalMaint > 0) {
-    lines.push({ date: postDate, memo, account: MAINT, debit: summary.totalMaint, credit: 0 });
-  }
-
-  // Compute what sits in clearing (rent received but not yet distributed)
-  const cashIn = summary.totalDist + summary.totalMgmt + summary.totalMaint;
-  const undeposited = summary.totalRent - cashIn;
-  if (undeposited > 0) {
-    lines.push({ date: postDate, memo, account: CLEARING, debit: undeposited, credit: 0 });
-  } else if (undeposited < 0) {
-    // Distribution exceeded current rent — must be releasing prior undeposited
-    lines.push({ date: postDate, memo, account: CLEARING, debit: 0, credit: Math.abs(undeposited) });
-  }
-
-  // Credit: rental income by property
-  for (const prop of summary.propertiesPaid) {
-    const propTotal = prop.income.reduce((s, i) => s + i.amount, 0);
-    const tenants = [...new Set(prop.income.map(i => i.tenant))].join(", ");
+  // DEBIT: Maintenance / Utilities
+  for (const m of prop.maintenance) {
     lines.push({
       date: postDate,
-      memo: `${memo} — ${prop.property} (${tenants})`,
-      account: `${INCOME} — ${prop.property}`,
-      debit: 0,
-      credit: propTotal
+      memo: `${memo} — ${m.accountLabel}: ${m.description}`,
+      account: MAINT,
+      debit: m.amount,
+      credit: 0
     });
   }
 
-  return lines;
+  // Handle balancing — timing difference from undeposited funds
+  const cashOut = totalDist + totalMgmt + totalMaint;
+  const diff = totalIncome - cashOut;
+  if (diff > 0) {
+    // Rent came in, not all distributed - difference sits in clearing
+    lines.push({ date: postDate, memo, account: CLEARING, debit: diff, credit: 0 });
+  } else if (diff < 0) {
+    // Distribution exceeded current rent - prior undeposited being released
+    lines.push({ date: postDate, memo, account: CLEARING, debit: 0, credit: Math.abs(diff) });
+  }
+
+  // CREDIT: Rental Income (by property)
+  if (totalIncome > 0) {
+    lines.push({
+      date: postDate,
+      memo,
+      account: `${INCOME} - ${prop.property}`,
+      debit: 0,
+      credit: totalIncome
+    });
+  }
+
+  return { property: prop.property, dateStart: prop.dateStart, dateEnd: prop.dateEnd, memo, lines };
+}
+
+// Build an array of per-property JEs for every property with activity.
+function buildAllPropertyJEs(statements) {
+  const jes = [];
+  let jeNumber = 1;
+  for (const prop of statements) {
+    const je = buildPropertyJE(prop);
+    if (je) {
+      je.jeNumber = `JE${String(jeNumber).padStart(3, "0")}`;
+      jes.push(je);
+      jeNumber++;
+    }
+  }
+  return jes;
 }
 
 function downloadExcel(batch, summary) {
-  const lines = buildCombinedJELines(batch, summary);
-
+  const jes = buildAllPropertyJEs(batch.parsedData.statements);
   const wb = XLSX.utils.book_new();
 
-  // Sheet 1: Journal Entry
+  // Sheet 1: Journal Entries — per property, QB-import ready
+  // Columns match standard QB journal-entry CSV layout
   const jeRows = [
-    ["Date", "Memo", "Account", "Debit", "Credit"]
+    ["Date", "JE #", "Memo", "Account", "Debit", "Credit", "Property"]
   ];
   let totalDebit = 0;
   let totalCredit = 0;
-  for (const l of lines) {
-    jeRows.push([l.date, l.memo, l.account, l.debit || "", l.credit || ""]);
-    totalDebit += l.debit || 0;
-    totalCredit += l.credit || 0;
+  for (const je of jes) {
+    for (const l of je.lines) {
+      jeRows.push([
+        l.date,
+        je.jeNumber,
+        l.memo,
+        l.account,
+        l.debit || "",
+        l.credit || "",
+        je.property
+      ]);
+      totalDebit += l.debit || 0;
+      totalCredit += l.credit || 0;
+    }
+    // Blank row between JEs for readability
+    jeRows.push([]);
   }
-  jeRows.push([]);
-  jeRows.push(["", "", "TOTALS", totalDebit, totalCredit]);
+  jeRows.push(["", "", "", "TOTALS", totalDebit, totalCredit, ""]);
   const jeSheet = XLSX.utils.aoa_to_sheet(jeRows);
-  jeSheet["!cols"] = [{ wch: 12 }, { wch: 48 }, { wch: 36 }, { wch: 12 }, { wch: 12 }];
-  XLSX.utils.book_append_sheet(wb, jeSheet, "Journal Entry");
-
-  // Sheet 2: Rent by Property
-  const rentRows = [
-    ["Property", "Tenant", "Date Paid", "Amount"]
+  jeSheet["!cols"] = [
+    { wch: 11 }, { wch: 8 }, { wch: 46 }, { wch: 32 },
+    { wch: 11 }, { wch: 11 }, { wch: 22 }
   ];
+  XLSX.utils.book_append_sheet(wb, jeSheet, "Journal Entries");
+
+  // Sheet 2: Rent Received
+  const rentRows = [["Property", "Tenant", "Date Paid", "Amount"]];
   for (const prop of summary.propertiesPaid) {
     for (const i of prop.income) {
       rentRows.push([prop.property, i.tenant, i.date, i.amount]);
@@ -273,7 +324,7 @@ function downloadExcel(batch, summary) {
   rentSheet["!cols"] = [{ wch: 28 }, { wch: 24 }, { wch: 14 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, rentSheet, "Rent Received");
 
-  // Sheet 3: No Rent
+  // Sheet 3: No Rent Received
   if (summary.propertiesNoRent.length > 0) {
     const noRentRows = [["Property", "Statement Period"]];
     for (const p of summary.propertiesNoRent) {
@@ -300,7 +351,7 @@ function downloadExcel(batch, summary) {
     XLSX.utils.book_append_sheet(wb, feeSheet, "Fees & Maintenance");
   }
 
-  const filename = (batch.batchName || "Rental Statements").replace(/[^a-zA-Z0-9 ]/g, "") + " - Journal Entry.xlsx";
+  const filename = (batch.batchName || "Rental Statements").replace(/[^a-zA-Z0-9 ]/g, "") + " - Journal Entries.xlsx";
   XLSX.writeFile(wb, filename);
 }
 
@@ -700,6 +751,54 @@ function BatchDetail({ batch, onBack, onDelete, onDownload }) {
           </table>
         </Card>
       )}
+
+      {/* Per-property journal entries */}
+      <Card className="p-5 mb-4">
+        <h3 className="font-sans text-lg font-semibold mb-3" style={{ color: C.ink }}>
+          Journal Entries ({buildAllPropertyJEs(batch.parsedData.statements).length})
+        </h3>
+        <p className="font-sans text-xs mb-4" style={{ color: C.inkSoft }}>
+          Preview of what will be in the Excel download — one JE per property with activity.
+        </p>
+        <div className="space-y-4">
+          {buildAllPropertyJEs(batch.parsedData.statements).map((je) => (
+            <div key={je.jeNumber} className="rounded-md p-3" style={{ background: C.paperSoft, border: `1px solid ${C.inkLine}` }}>
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <p className="font-sans font-semibold text-sm" style={{ color: C.ink }}>
+                  {je.jeNumber} — {je.property}
+                </p>
+                <span className="font-sans text-xs" style={{ color: C.inkSoft }}>
+                  {fmtDate(je.dateStart)} - {fmtDate(je.dateEnd)}
+                </span>
+              </div>
+              <table className="w-full font-sans text-xs">
+                <thead>
+                  <tr style={{ color: C.inkSoft }}>
+                    <th className="text-left py-1 font-medium uppercase">Account</th>
+                    <th className="text-right py-1 font-medium uppercase">Debit</th>
+                    <th className="text-right py-1 font-medium uppercase">Credit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {je.lines.map((line, i) => (
+                    <tr key={i} style={{ borderTop: `1px solid ${C.inkLine}` }}>
+                      <td className="py-1.5" style={{ paddingLeft: line.credit > 0 ? "18px" : "0" }}>
+                        {line.account}
+                      </td>
+                      <td className="py-1.5 text-right font-mono" style={{ color: line.debit > 0 ? C.ink : "transparent" }}>
+                        {line.debit > 0 ? fmtMoney(line.debit) : "·"}
+                      </td>
+                      <td className="py-1.5 text-right font-mono" style={{ color: line.credit > 0 ? C.ink : "transparent" }}>
+                        {line.credit > 0 ? fmtMoney(line.credit) : "·"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }
