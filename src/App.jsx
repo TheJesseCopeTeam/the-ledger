@@ -5,7 +5,7 @@ import {
   Users, DollarSign, Bell, ChevronDown, ChevronRight, Search
 } from "lucide-react";
 import { load, save } from "./dataLayer";
-import PropertyDocumentsSection from "./PropertyDocuments.jsx";
+import RentalStatementsView from "./RentalStatements.jsx";
 
 // ============================================================
 // STORAGE HELPERS - now uses Supabase via dataLayer
@@ -229,13 +229,13 @@ export default function App({ onSignOut }) {
   const [notes, setNotes] = useState({});
   const [payrolls, setPayrolls] = useState([]);
   const [quickLaunch, setQuickLaunch] = useState([]);
-  const [propertyDocuments, setPropertyDocuments] = useState([]);
+  const [statementBatches, setStatementBatches] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     (async () => {
       // Load everything in parallel instead of sequentially — much faster startup
-      const [c, b, p, t, pm, f, n, pr, ql, pd] = await Promise.all([
+      const [c, b, p, t, pm, f, n, pr, ql, sb] = await Promise.all([
         load("bk:companies", null),
         load("bk:bills", null),
         load("bk:properties", null),
@@ -245,7 +245,7 @@ export default function App({ onSignOut }) {
         load("bk:notes", null),
         load("bk:payrolls", []),
         load("bk:quickLaunch", []),
-        load("bk:propertyDocuments", [])
+        load("bk:statementBatches", [])
       ]);
 
       // Companies: apply name migration if needed
@@ -305,7 +305,7 @@ export default function App({ onSignOut }) {
       setNotes(n && typeof n === "object" ? n : (n ? { _general: n } : {}));
       setPayrolls(pr);
       setQuickLaunch(ql);
-      setPropertyDocuments(pd);
+      setStatementBatches(sb);
       setLoaded(true);
     })();
   }, []);
@@ -319,7 +319,7 @@ export default function App({ onSignOut }) {
   const saveNotes = (v) => { setNotes(v); save("bk:notes", v); };
   const savePayrolls = (v) => { setPayrolls(v); save("bk:payrolls", v); };
   const saveQuickLaunch = (v) => { setQuickLaunch(v); save("bk:quickLaunch", v); };
-  const savePropertyDocuments = (v) => { setPropertyDocuments(v); save("bk:propertyDocuments", v); };
+  const saveStatementBatches = (v) => { setStatementBatches(v); save("bk:statementBatches", v); };
 
   if (!loaded) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: C.paper }}>
@@ -399,7 +399,6 @@ export default function App({ onSignOut }) {
             flips={flips} saveFlips={saveFlips}
             notes={notes} saveNotes={saveNotes}
             payrolls={payrolls} savePayrolls={savePayrolls}
-            propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments}
           />
         )}
         {activeCompany && activeCompany.id === "rentals" && (
@@ -413,7 +412,7 @@ export default function App({ onSignOut }) {
             flips={flips}
             notes={notes} saveNotes={saveNotes}
             payrolls={payrolls} savePayrolls={savePayrolls}
-            propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments}
+            statementBatches={statementBatches} saveStatementBatches={saveStatementBatches}
           />
         )}
         {activeCompany && activeCompany.id === "realtor" && (
@@ -2057,7 +2056,7 @@ function CalendarGrid({ month, events, onChangeMonth, onDayClick, onEventClick }
 // ============================================================
 // JMC VIEW (custom per-company layout for JMC Investments)
 // ============================================================
-function JMCView({ company, allCompanies, bills, saveBills, properties, saveProperties, tenants, saveTenants, payments, savePayments, flips, saveFlips, notes, saveNotes, payrolls, savePayrolls, propertyDocuments, savePropertyDocuments }) {
+function JMCView({ company, allCompanies, bills, saveBills, properties, saveProperties, tenants, saveTenants, payments, savePayments, flips, saveFlips, notes, saveNotes, payrolls, savePayrolls }) {
   const [subTab, setSubTab] = useState("reminders");
 
   const myBills = bills.filter(b => b.companyId === company.id);
@@ -2150,8 +2149,7 @@ function JMCView({ company, allCompanies, bills, saveBills, properties, saveProp
       {subTab === "rentals" && (
         <PenciledPropertiesView companyId={company.id} properties={properties} saveProperties={saveProperties}
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills}
-          companies={allCompanies} payments={payments} savePayments={savePayments}
-          propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments} />
+          companies={allCompanies} payments={payments} savePayments={savePayments} />
       )}
       {subTab === "payroll" && (
         <JMCPayrollView companyId={company.id} bills={bills} saveBills={saveBills} companies={allCompanies}
@@ -3721,7 +3719,7 @@ function JMCGeneralBillsView({ companyId, bills, saveBills, companies }) {
 // ============================================================
 // PENCILED PROPERTIES — CUSTOM VIEW (rental holding company)
 // ============================================================
-function PenciledView({ company, allCompanies, bills, saveBills, properties, saveProperties, tenants, saveTenants, payments, savePayments, flips, notes, saveNotes, payrolls, savePayrolls, propertyDocuments, savePropertyDocuments }) {
+function PenciledView({ company, allCompanies, bills, saveBills, properties, saveProperties, tenants, saveTenants, payments, savePayments, flips, notes, saveNotes, payrolls, savePayrolls, statementBatches, saveStatementBatches }) {
   const [subTab, setSubTab] = useState("reminders");
 
   const myBills = bills.filter(b => b.companyId === company.id);
@@ -3737,7 +3735,7 @@ function PenciledView({ company, allCompanies, bills, saveBills, properties, sav
   const subTabs = [
     { id: "reminders", label: "Reminders", icon: Bell },
     { id: "properties", label: "Properties", icon: Building2, count: myProperties.length },
-    { id: "rentroll", label: "Rent Roll", icon: DollarSign },
+    { id: "statements", label: "Rental Statements", icon: FileText },
     ...(company.showPayroll ? [{ id: "payroll", label: "Payroll & Quarterlies", icon: Calendar }] : []),
     { id: "general", label: "General Bills", icon: Receipt },
     { id: "notes", label: "Notes", icon: FileText }
@@ -3810,12 +3808,11 @@ function PenciledView({ company, allCompanies, bills, saveBills, properties, sav
       {subTab === "properties" && (
         <PenciledPropertiesView companyId={company.id} properties={properties} saveProperties={saveProperties}
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills} companies={allCompanies}
-          payments={payments} savePayments={savePayments}
-          propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments} />
-      )}
-      {subTab === "rentroll" && (
-        <PenciledRentRollView companyId={company.id} properties={properties} tenants={tenants}
           payments={payments} savePayments={savePayments} />
+      )}
+      {subTab === "statements" && (
+        <RentalStatementsView companyId={company.id} companyName={company.name}
+          statementBatches={statementBatches} saveStatementBatches={saveStatementBatches} />
       )}
       {subTab === "payroll" && company.showPayroll && (
         <JMCPayrollView companyId={company.id} bills={bills} saveBills={saveBills} companies={allCompanies}
@@ -3834,7 +3831,7 @@ function PenciledView({ company, allCompanies, bills, saveBills, properties, sav
 // ============================================================
 // PENCILED: PROPERTIES LIST + FORM
 // ============================================================
-function PenciledPropertiesView({ companyId, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, payments, savePayments, propertyDocuments, savePropertyDocuments }) {
+function PenciledPropertiesView({ companyId, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, payments, savePayments }) {
   const [editingProp, setEditingProp] = useState(null);
   const [showPropForm, setShowPropForm] = useState(false);
   const [openProp, setOpenProp] = useState(null);
@@ -3899,7 +3896,6 @@ function PenciledPropertiesView({ companyId, properties, saveProperties, tenants
         <PenciledPropertyDetailView property={openProperty} properties={properties} saveProperties={saveProperties}
           tenants={tenants} saveTenants={saveTenants} bills={bills} saveBills={saveBills} companies={companies}
           payments={payments} savePayments={savePayments}
-          propertyDocuments={propertyDocuments} savePropertyDocuments={savePropertyDocuments}
           onBack={() => setOpenProp(null)}
           onEdit={() => { setEditingProp(openProperty); setShowPropForm(true); }}
           onDelete={() => handleDeleteProp(openProperty.id)}
@@ -4117,7 +4113,7 @@ function PenciledPropertyForm({ property, existingTenants = [], onSave, onCancel
 // ============================================================
 // PENCILED: PROPERTY DETAIL VIEW
 // ============================================================
-function PenciledPropertyDetailView({ property, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, payments, savePayments, propertyDocuments, savePropertyDocuments, onBack, onEdit, onDelete, onTransfer }) {
+function PenciledPropertyDetailView({ property, properties, saveProperties, tenants, saveTenants, bills, saveBills, companies, payments, savePayments, onBack, onEdit, onDelete, onTransfer }) {
   const [editingTenant, setEditingTenant] = useState(null);
   const [showTenantForm, setShowTenantForm] = useState(false);
   const [editingBill, setEditingBill] = useState(null);
@@ -4297,13 +4293,6 @@ function PenciledPropertyDetailView({ property, properties, saveProperties, tena
           </div>
         )}
       </Card>
-
-      {/* Documents */}
-      <PropertyDocumentsSection
-        propertyId={property.id}
-        documents={propertyDocuments}
-        saveDocuments={savePropertyDocuments}
-      />
 
       {/* Utilities */}
       <Card className="p-5 mb-4">
