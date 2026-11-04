@@ -77,6 +77,30 @@ function isOwnerStatement(text) {
   return text.includes("Owner Statement") && /Ownerships:/i.test(text);
 }
 
+// A single PDF can contain MULTIPLE property statements (one page each).
+// Split the full text by "Ownerships:" markers, returning one text section
+// per property.  Each section can then be parsed separately.
+function splitByProperty(text) {
+  const markers = [];
+  const re = /Ownerships:/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    markers.push(m.index);
+  }
+  if (markers.length === 0) return [];
+  if (markers.length === 1) return [text];
+
+  const sections = [];
+  for (let i = 0; i < markers.length; i++) {
+    const start = markers[i];
+    // Back up a bit so we include any date headers that come above the marker
+    const sectionStart = Math.max(0, start - 500);
+    const sectionEnd = i < markers.length - 1 ? markers[i + 1] : text.length;
+    sections.push(text.slice(sectionStart, sectionEnd));
+  }
+  return sections;
+}
+
 function parseStatementText(text) {
   const result = {
     property: null, dateStart: null, dateEnd: null,
@@ -434,7 +458,7 @@ export default function RentalStatementsView({ companyId, companyName, statement
         return;
       }
 
-      // Parse each PDF
+      // Parse each PDF — a single PDF can contain multiple property statements
       const parsed = [];
       const skipped = [];
       for (let i = 0; i < pdfBlobs.length; i++) {
@@ -445,12 +469,17 @@ export default function RentalStatementsView({ companyId, companyName, statement
             skipped.push(pdfBlobs[i].name);
             continue;
           }
-          const data = parseStatementText(text);
-          if (!data.property || !data.dateStart) {
-            skipped.push(pdfBlobs[i].name);
-            continue;
+          // Split multi-property PDFs into individual property sections
+          const sections = splitByProperty(text);
+          let foundAny = false;
+          for (const section of sections) {
+            const data = parseStatementText(section);
+            if (data.property && data.dateStart) {
+              parsed.push(data);
+              foundAny = true;
+            }
           }
-          parsed.push(data);
+          if (!foundAny) skipped.push(pdfBlobs[i].name);
         } catch (e) {
           console.warn("Parse failed:", pdfBlobs[i].name, e);
           skipped.push(pdfBlobs[i].name);
