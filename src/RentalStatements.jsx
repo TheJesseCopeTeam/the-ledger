@@ -101,6 +101,17 @@ function splitByProperty(text) {
   return sections;
 }
 
+// Grab the CURRENT-column amount for a known label in a summary-format statement.
+// Each line looks like:  "Rental Income   2,600.00   9,974.50"
+// First number = current period, second = YTD.
+function extractCurrentAmount(text, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(escaped + "\\s+(-?[\\d,]+\\.\\d{2})\\s+(-?[\\d,]+\\.\\d{2})", "i");
+  const m = text.match(re);
+  if (!m) return null;
+  return parseFloat(m[1].replace(/,/g, ""));
+}
+
 function parseStatementText(text) {
   const result = {
     property: null, dateStart: null, dateEnd: null,
@@ -118,54 +129,16 @@ function parseStatementText(text) {
     result.dateEnd = parseDate(dm[2]);
   }
 
-  let m;
+  // Detect which statement format we're looking at
+  const isDetailed = /4101 Rental Income|5200 Management fees|3002 Owner Distribution/.test(text);
 
-  // Income — 4101 Rental Income
-  const incomeRe = /(\d{1,2}\/\d{1,2}\/\d{2,4})[^\n]*?4101 Rental Income\s+([A-Za-z][A-Za-z\s\.\-']+?)\s+([\d,]+\.\d{2})/g;
-  while ((m = incomeRe.exec(text)) !== null) {
-    result.income.push({
-      date: parseDate(m[1]),
-      tenant: m[2].trim(),
-      amount: parseFloat(m[3].replace(/,/g, ""))
-    });
+  if (isDetailed) {
+    parseDetailedFormat(text, result);
+  } else {
+    parseSummaryFormat(text, result);
   }
 
-  // Management fees — 5200
-  const mgmtRe = /(\d{1,2}\/\d{1,2}\/\d{2,4})[^\n]*?5200 Management fees\s+(.+?)\s+([\d,]+\.\d{2})/g;
-  while ((m = mgmtRe.exec(text)) !== null) {
-    result.expenses.push({
-      date: parseDate(m[1]),
-      description: m[2].trim(),
-      amount: parseFloat(m[3].replace(/,/g, ""))
-    });
-  }
-
-  // Maintenance / repairs — various account codes starting with 52, 53, 54, 55 that aren't 5200
-  // Common: 5300 Repairs, 5301 Maintenance, 5400 Landscaping, etc.
-  const maintRe = /(\d{1,2}\/\d{1,2}\/\d{2,4})[^\n]*?(5[3-9]\d{2}|53\d{2}|6\d{3})\s+([A-Za-z][A-Za-z\s\/]+?)\s+(.+?)\s+([\d,]+\.\d{2})/g;
-  while ((m = maintRe.exec(text)) !== null) {
-    const acctLabel = m[3].trim();
-    // Skip the mgmt fee pattern we already caught
-    if (acctLabel.toLowerCase().includes("management")) continue;
-    result.maintenance.push({
-      date: parseDate(m[1]),
-      accountCode: m[2],
-      accountLabel: acctLabel,
-      description: m[4].trim(),
-      amount: parseFloat(m[5].replace(/,/g, ""))
-    });
-  }
-
-  // Owner distributions — 3002
-  const distRe = /(\d{1,2}\/\d{1,2}\/\d{2,4})[^\n]*?3002 Owner Distribution\s+(.+?)\s+(-?[\d,]+\.?\d*)/g;
-  while ((m = distRe.exec(text)) !== null) {
-    result.distributions.push({
-      date: parseDate(m[1]),
-      comment: m[2].trim(),
-      amount: Math.abs(parseFloat(m[3].replace(/,/g, "")))
-    });
-  }
-
+  // Balances — same across both formats
   const begin = text.match(/Beginning Bank Balance\s+(-?[\d,]+\.\d{2})/);
   if (begin) result.beginningBalance = parseFloat(begin[1].replace(/,/g, ""));
   const end = text.match(/Ending Bank Balance\s+(-?[\d,]+\.\d{2})/);
@@ -176,6 +149,115 @@ function parseStatementText(text) {
   if (undep) result.undeposited = parseFloat(undep[1].replace(/,/g, ""));
 
   return result;
+}
+
+// Weekly transaction-detail format (JMC-style) — individual line items with tenant names and dates.
+function parseDetailedFormat(text, result) {
+  let m;
+
+  const incomeRe = /(\d{1,2}\/\d{1,2}\/\d{2,4})[^\n]*?4101 Rental Income\s+([A-Za-z][A-Za-z\s\.\-']+?)\s+([\d,]+\.\d{2})/g;
+  while ((m = incomeRe.exec(text)) !== null) {
+    result.income.push({
+      date: parseDate(m[1]),
+      tenant: m[2].trim(),
+      amount: parseFloat(m[3].replace(/,/g, ""))
+    });
+  }
+
+  const mgmtRe = /(\d{1,2}\/\d{1,2}\/\d{2,4})[^\n]*?5200 Management fees\s+(.+?)\s+([\d,]+\.\d{2})/g;
+  while ((m = mgmtRe.exec(text)) !== null) {
+    result.expenses.push({
+      date: parseDate(m[1]),
+      description: m[2].trim(),
+      amount: parseFloat(m[3].replace(/,/g, ""))
+    });
+  }
+
+  const distRe = /(\d{1,2}\/\d{1,2}\/\d{2,4})[^\n]*?3002 Owner Distribution\s+(.+?)\s+(-?[\d,]+\.?\d*)/g;
+  while ((m = distRe.exec(text)) !== null) {
+    result.distributions.push({
+      date: parseDate(m[1]),
+      comment: m[2].trim(),
+      amount: Math.abs(parseFloat(m[3].replace(/,/g, "")))
+    });
+  }
+}
+
+// Monthly summary format (Penciled-style) — category totals in a Current + YTD layout.
+function parseSummaryFormat(text, result) {
+  // All possible income categories. Extract the Current (first) number.
+  const incomeLabels = [
+    "Rental Income",
+    "Pet Fees",
+    "Move out fees",
+    "Move-out fees",
+    "Unallocated Prepays",
+    "Late Fees",
+    "NSF Fees",
+    "Application Fees",
+    "Other Income"
+  ];
+  for (const label of incomeLabels) {
+    const amount = extractCurrentAmount(text, label);
+    if (amount !== null && amount !== 0) {
+      result.income.push({
+        date: result.dateEnd,
+        tenant: label, // use category as the display label
+        amount
+      });
+    }
+  }
+
+  // Management fees go to Management Fees account
+  const mgmt = extractCurrentAmount(text, "Management fees");
+  if (mgmt !== null && mgmt !== 0) {
+    result.expenses.push({
+      date: result.dateEnd,
+      description: "Management fees",
+      amount: mgmt
+    });
+  }
+
+  // Other expenses / utilities / maintenance go to Maintenance pot
+  const expenseLabels = [
+    "Water And Sewer Utility",
+    "Water and Sewer Utility",
+    "Non-taxable janitorial",
+    "Postage",
+    "Repairs",
+    "Maintenance",
+    "Lawn Care",
+    "Landscaping",
+    "Trash",
+    "Gas",
+    "Electric",
+    "Electricity",
+    "Other Expense"
+  ];
+  for (const label of expenseLabels) {
+    const amount = extractCurrentAmount(text, label);
+    if (amount !== null && amount !== 0) {
+      result.maintenance.push({
+        date: result.dateEnd,
+        accountLabel: label,
+        description: label,
+        amount
+      });
+    }
+  }
+
+  // Owner disbursement — "Paid to owner"
+  const paid = text.match(/Paid to owner\s+(-?[\d,]+\.\d{2})/);
+  if (paid) {
+    const amt = Math.abs(parseFloat(paid[1].replace(/,/g, "")));
+    if (amt > 0) {
+      result.distributions.push({
+        date: result.dateEnd,
+        comment: "Paid to owner",
+        amount: amt
+      });
+    }
+  }
 }
 
 // ===== Batch helpers =====
@@ -459,7 +541,7 @@ export default function RentalStatementsView({ companyId, companyName, statement
       }
 
       // Parse each PDF — a single PDF can contain multiple property statements
-      const parsed = [];
+      const rawParsed = [];
       const skipped = [];
       for (let i = 0; i < pdfBlobs.length; i++) {
         setUploadProgress(`Parsing ${i + 1} of ${pdfBlobs.length}: ${pdfBlobs[i].name}`);
@@ -475,7 +557,7 @@ export default function RentalStatementsView({ companyId, companyName, statement
           for (const section of sections) {
             const data = parseStatementText(section);
             if (data.property && data.dateStart) {
-              parsed.push(data);
+              rawParsed.push(data);
               foundAny = true;
             }
           }
@@ -485,6 +567,20 @@ export default function RentalStatementsView({ companyId, companyName, statement
           skipped.push(pdfBlobs[i].name);
         }
       }
+
+      // Statements often come with a parent roll-up PLUS per-unit subunit statements
+      // (e.g. "2240 42nd Ave." parent AND "2240 42nd Ave. - 1" subunit).
+      // Parents hold the authoritative totals (rent + fees + distribution) while
+      // subunits only duplicate the rent breakdown. Keep only parents to avoid
+      // double-counting — but keep standalone subunits if no matching parent exists.
+      const parentNames = new Set(
+        rawParsed.filter(p => !/\s-\s/.test(p.property)).map(p => p.property)
+      );
+      const parsed = rawParsed.filter(p => {
+        if (!/\s-\s/.test(p.property)) return true; // Parent, always keep
+        const parentName = p.property.replace(/\s-\s.+$/, "");
+        return !parentNames.has(parentName); // Subunit kept only if no parent exists
+      });
 
       if (parsed.length === 0) {
         setUploadError("No valid owner statements found in your upload.");
